@@ -1,0 +1,21 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+
+# 发布产物与版本归档：
+# 自包含单文件 exe 有 178MB，不适合进版本库。要发布就上传到 GitHub Release；
+# 本地历史版本的 exe 另归档在 releases/ 下，需要时手动分发。
+dist/
+dist-fx/
+releases/
+
+# --render-preview 的离屏自检输出：随时可由命令重新生成，不进版本库。
+.preview/
+
+# 打包方式内存对比用的临时产物。
+.memprobe/
+
+# 本地构建 / 发布日志
+*.log

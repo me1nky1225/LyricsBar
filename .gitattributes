@@ -1,0 +1,7 @@
+# 统一换行符：仓库里存 LF，检出到 Windows 时不要因为自动转换而在 diff 里刷出整文件改动
+* text=auto eol=lf
+
+# 二进制文件不要做任何文本转换
+*.png binary
+*.ico binary
+*.exe binary

@@ -1,0 +1,118 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <UseWPF>true</UseWPF>
+    <!-- 托盘图标用 System.Windows.Forms.NotifyIcon：WPF 自身没有托盘 API，这是最省事且稳定的做法。 -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <!-- LibraryImport 的源生成器要求开启不安全代码许可。 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>LyricsBar</RootNamespace>
+    <AssemblyName>LyricsBar</AssemblyName>
+    <AssemblyTitle>Lyrics Bar</AssemblyTitle>
+    <Product>Lyrics Bar</Product>
+    <Description>把歌词显示在 Windows 任务栏上的极简工具。Taskbar lyrics for Windows 10/11.</Description>
+    <Version>1.4.2</Version>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- 任务栏停靠需要按物理像素定位，因此必须显式声明 DPI 感知；app.manifest 里是 PerMonitorV2。 -->
+    <ApplicationIcon>LyricsBar.ico</ApplicationIcon>
+    <SatelliteResourceLanguages>zh-Hans;en</SatelliteResourceLanguages>
+    <!--
+      WFO0003：WinForms 建议用 ApplicationHighDpiMode 而不是 app.manifest 配置 DPI。这里必须保留 manifest 里的
+      PerMonitorV2 声明——任务栏停靠是按物理像素定位的，靠进程级清单声明最可靠。托盘图标不需要 WinForms 的 DPI 处理。
+      WFO0003: WinForms prefers ApplicationHighDpiMode over app.manifest for DPI. The manifest's PerMonitorV2 declaration must
+      stay — taskbar docking positions by physical pixels, and a process-level manifest declaration is the most reliable way to
+      get that. The tray icon needs no WinForms DPI handling.
+    -->
+    <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      WinForms 的隐式引用会把 System.Windows.Forms 与 System.Drawing 塞进全局 using，而这两个命名空间里
+      Application / MessageBox / CheckBox / Color / Brushes / SystemFonts / FlowDirection 等名字与 WPF 完全重名，
+      于是每个文件都要写限定名。这里把它们从隐式引用里摘掉，只让真正需要 WinForms 的文件（托盘图标）显式引用。
+      The WinForms implicit usings push System.Windows.Forms and System.Drawing into every file, and those namespaces
+      collide with WPF on Application, MessageBox, CheckBox, Color, Brushes, SystemFonts, FlowDirection and more, forcing
+      qualified names everywhere. Removing them from the implicit set leaves only the files that genuinely need WinForms —
+      the tray icon — importing them explicitly.
+    -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 取词与歌词解析（网易云 / QQ音乐 / 酷狗 / 汽水 / LRCLIB 的搜索与 LRC/YRC/QRC 解析都在这个包里）。 -->
+    <PackageReference Include="Lyricify.Lyrics.Helper" Version="0.2.0" />
+    <!-- 歌词与曲目的元数据相似度打分。 -->
+    <PackageReference Include="F23.StringSimilarity" Version="7.0.1" />
+    <!-- 逐字歌词渲染宿主。 -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+    <!-- 繁简转换。词典已内嵌在程序集里，必须挡掉包里那份散装词典，否则输出目录会多出 dicts 文件夹。 -->
+    <PackageReference Include="OpenccNetLib" Version="1.7.0" ExcludeAssets="contentFiles" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      应用图标以嵌入资源随程序集走一份（托盘与窗口标题栏用），同时 ApplicationIcon 会把它写进 exe 的资源区
+      （资源管理器与任务栏按钮用）。两者来源是同一个文件，不额外维护副本。
+      The app icon is embedded in the assembly (used by the tray and the window title bar) while ApplicationIcon also writes it
+      into the exe's resource section (used by Explorer and the taskbar button). One source file, no extra copies.
+    -->
+    <EmbeddedResource Include="LyricsBar.ico" />
+    <!--
+      歌词前端以**嵌入资源**打包，而不是复制到输出目录：渲染器用 NavigateToString 装载一份自包含文档，
+      运行时不需要任何外部文件，因此单文件发布后仍然是"一个 exe"。
+      The lyric front end ships as **embedded resources** rather than copied output files: the renderer loads a self-contained
+      document through NavigateToString, so nothing is needed on disk at runtime and a single-file publish stays one executable.
+    -->
+    <EmbeddedResource Include="Web\Lyrics\*.html" />
+    <EmbeddedResource Include="Web\Lyrics\*.css" />
+    <EmbeddedResource Include="Web\Lyrics\*.js" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(RuntimeIdentifier)' != ''">
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!--
+      压缩单文件一定要关掉：它换来的是体积（75MB → 178MB），代价却是**常驻内存**。
+      实测（2026-10-15，同一台机器、同一个构建、以 no-dock 参数跑 20 秒后读"私有工作集"，也就是任务管理器
+      进程页里那个"内存"数字）：
+        压缩单文件   147.8 MB（有播放）/ 112.5 MB（无播放）
+        不压缩单文件  57.1 MB（有播放）/  28.4 MB（无播放）
+      原因是压缩包在启动时会被整包解压进私有内存，等于把运行时又背了一份；托管堆本身只有几 MB，
+      所以那 90MB 全是白白多出来的。改回压缩之前先想清楚：省下的是磁盘，赔进去的是内存。
+      Compression in the single-file bundle must stay off: it buys disk size (75 MB to 178 MB) at the cost of **resident
+      memory**. Measured 2026-10-15 on one machine with one build, reading the private working set (the "Memory" number in
+      Task Manager's process list) 20 s after a no-dock start:
+        compressed single file:   147.8 MB (playing) / 112.5 MB (idle)
+        uncompressed single file:  57.1 MB (playing) /  28.4 MB (idle)
+      The compressed bundle is inflated into private memory at startup, which amounts to carrying the runtime a second time;
+      the managed heap is only a few megabytes, so those ~90 MB are pure overhead. Before turning compression back on, be
+      clear about the trade: it saves disk and costs memory.
+    -->
+    <EnableCompressionInSingleFile>false</EnableCompressionInSingleFile>
+    <DebugType>None</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <!--
+    WebView2 包在单文件打包完成之后才追加一批引用用的 XML 文档，它们不是运行时依赖，留在发布目录里会破坏
+    "发布目录只有一个 exe"的约定，因此发布后删掉。
+    The WebView2 package adds reference XML documentation after the single-file bundle is computed. Those files are not
+    runtime dependencies and break the "one executable in the publish directory" contract, so they are deleted after publish.
+  -->
+  <Target Name="RemoveWebView2ReferenceDocumentation" AfterTargets="Publish"
+          Condition="'$(PublishSingleFile)' == 'true'">
+    <ItemGroup>
+      <_WebView2ReferenceDocumentation Include="$(PublishDir)Microsoft.Web.WebView2.*.xml" />
+    </ItemGroup>
+    <Delete Files="@(_WebView2ReferenceDocumentation)" />
+  </Target>
+
+</Project>

@@ -1,0 +1,12 @@
+<Application x:Class="LyricsBar.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <!--
+      ShutdownMode=OnExplicitShutdown：任务栏歌词窗口会被隐藏（没有媒体时不显示），
+      用默认的 OnLastWindowClose 会让"隐藏主窗口"被当成"该退出了"。退出只能由托盘菜单触发。
+      ShutdownMode=OnExplicitShutdown: the taskbar lyric window gets hidden while nothing is playing, and the default
+      OnLastWindowClose would read that as "time to exit". Only the tray menu quits.
+    -->
+    <Application.Resources />
+</Application>

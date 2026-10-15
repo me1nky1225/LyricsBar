@@ -1,0 +1,170 @@
+<Window x:Class="LyricsBar.Views.TaskbarLyricsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="LyricsBar"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ShowActivated="False"
+        Focusable="False"
+        RenderOptions.ClearTypeHint="Enabled"
+        TextOptions.TextRenderingMode="ClearType"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        Visibility="Collapsed">
+
+    <!--
+      窗口本体只有三样东西：WebView2 歌词宿主、右侧的切歌按钮、底部一条播放进度。
+      所有排版（换行、切行、逐字擦亮）都在 Web 端完成，WPF 只负责尺寸、可见性、进度条与切歌按钮——
+      与原项目 TaskBarMediaControl 的分工一致。
+      切歌按钮做成 WPF 原生控件而不是画在网页里：网页里画需要一条 JS → C# 的回传通道，
+      而歌词页目前是单向的（只有 C# 推给网页）；原生按钮点击就是普通的路由事件，少一层跨端消息。
+      The window holds exactly three things: the WebView2 lyric host, the skip buttons on the right, and a playback-progress
+      strip along the bottom. All typography (wrapping, line transitions, syllable highlighting) happens on the web side; WPF
+      owns only sizing, visibility, the progress strip, and the skip buttons — the same split as the original's
+      TaskBarMediaControl. The skip buttons are native WPF controls rather than drawn inside the page: drawing them in the page
+      would need a JS-to-C# channel, and the lyric page is currently one-way (C# pushes to it), whereas a native button click is
+      an ordinary routed event with one less cross-boundary message.
+    -->
+    <Grid x:Name="RootGrid" Background="Transparent">
+        <!-- 只剩一列：按钮区改为覆盖在歌词之上（见下方 TransportPanel），不再单独占一列宽度。 -->
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="2" />
+        </Grid.RowDefinitions>
+
+        <Grid.Resources>
+            <!--
+              任务栏本身是深色的，按钮必须"无底色、浅前景、悬停才亮"，否则会在任务栏上贴出两个突兀的方块。
+              不做成带圆角的胶囊：任务栏图标的视觉语言就是无边框图标，跟着它走才不违和。
+              The taskbar itself is dark, so the buttons have to be flat with a light foreground that only lights up on hover;
+              anything else pastes two jarring blocks onto the taskbar. They are not pill-shaped either: the taskbar's visual
+              language is borderless icons, and following it is what keeps them from looking out of place.
+            -->
+            <Style x:Key="TransportButton" TargetType="Button">
+                <Setter Property="Width" Value="34" />
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Foreground" Value="#FFFFFFFF" />
+                <!--
+                  三个图标用 Segoe MDL2 Assets 的码位（E892 上一首 / E768 播放 / E769 暂停 / E893 下一首）。
+                  它随 Windows 7 起一直内置，比 ◀ ▶ 这类文本符号稳定：后者在部分字体上宽度不一、垂直居中也会漂。
+                  The three glyphs come from Segoe MDL2 Assets (E892 previous / E768 play / E769 pause / E893 next). It has
+                  shipped with Windows since 7 and is steadier than text symbols such as ◀ ▶, whose advance width varies by
+                  font and whose vertical centring tends to drift.
+                -->
+                <Setter Property="FontFamily" Value="Segoe MDL2 Assets" />
+                <Setter Property="FontSize" Value="14" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Cursor" Value="Hand" />
+                <Setter Property="Focusable" Value="False" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Chrome" Background="{TemplateBinding Background}" CornerRadius="3">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Chrome" Property="Background" Value="#33FFFFFF" />
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Chrome" Property="Background" Value="#66FFFFFF" />
+                                </Trigger>
+                                <!-- 播放器不支持切歌时置灰，而不是让用户点了没反应却不知道为什么。 -->
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Foreground" Value="#59FFFFFF" />
+                                    <Setter TargetName="Chrome" Property="Background" Value="Transparent" />
+                                    <Setter Property="Cursor" Value="Arrow" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </Grid.Resources>
+
+        <!--
+          歌词宿主：由代码后置把选中的渲染器挂进来（原生自绘面板，或 WebView2 合成控件）。
+          两者都不在 XAML 里声明，因为它们的构造顺序与可视树时机都由代码决定，声明式写法反而容易踩初始化顺序的坑。
+          The lyric host: the code-behind attaches whichever renderer is selected — the native drawing surface, or the WebView2
+          composition control. Neither is declared in XAML because their construction order and visual-tree timing are owned by
+          the code-behind, and the declarative form is exactly where initialisation-order bugs come from.
+        -->
+        <Grid x:Name="LyricsHost" Grid.Row="0" Grid.Column="0" Background="Transparent" />
+
+        <!--
+          按钮区平时收起，鼠标移到歌词栏上才出现（含滑过按钮区自身）：任务栏上常驻三个方块会挡住背后的图标，
+          而"要看的时候它在、不看的时候让开"正是悬停显示的用意。
+          它现在**覆盖在歌词之上**（与歌词同一格），不再单独占一列：点不动的根因是命中测试拿 DIP 坐标
+          去比物理像素（见代码后置 UpdatePointerInside），而单独一列还会让歌词栏为此留出一条空带；"浮在歌词上
+          + 磨砂背板"既不必预留宽度，也把按钮与歌词的关系摆得更直接。
+          三个按钮**居中在歌词框里**（不是居中在整条歌词栏里）：左边距由代码后置按 style.css 的列定义算出来
+          （布局内边距 + 封面列 + 曲目信息块列，见 ResolveLyricsPaneLeftDip），曲目信息块一宽一窄都不会跑偏。
+          覆盖效果由 Web 端做：页面里那层磨砂盖的就是歌词框本身（.lyrics-pane，白膜 + 对歌词内容加 filter:blur，
+          见 style.css），所以歌词框多宽多高它就多宽多高，栏宽变化自动跟着走——屏幕上只有这一个尺寸的雾。
+          WPF 这层不再另垫底板：多垫一层只会多出一个和歌词框对不上的小框（用户明确要求两者同尺寸）。
+          WebView2 是合成控件，WPF 的 Effect 作用不到它，能真正糊掉歌词的只有页面自己。
+          显隐只认 TransportPanel.Tag 一个条件，由代码后置统一设置：指针是否在窗口内走
+          HwndSource 消息钩子判定（WM_MOUSEMOVE / WM_MOUSELEAVE），不依赖 WPF 的
+          IsMouseOver——WebView2 那块区域的命中测试不完全可靠，钩子看到的是原始窗口消息，最稳。
+          这里不能再写局部 Visibility：局部值的优先级高于样式触发器，写一次 Collapsed 就永远收不回来。
+          The button cluster stays folded until the pointer is over the bar, the buttons included: three permanent blocks on
+          the taskbar would cover the icons behind them, whereas "there when looked for, gone when not" is exactly what hover
+          reveal is for. It now **overlays the lyrics** (same cell as the lyric host) instead of owning a column:
+          the click failure was really the pointer test comparing DIP against physical pixels (see UpdatePointerInside in the
+          code-behind), and a dedicated column additionally forces the bar to keep an empty lane, whereas "float over the lyrics
+          behind a frosted plate" needs no reserved width and states the buttons' relation to the lyrics directly. The three
+          buttons are **centred inside the lyrics box**, not inside the whole bar: the code-behind derives their left margin from
+          the very column list in style.css (layout padding + cover column + track-info column, see ResolveLyricsPaneLeftDip), so
+          a wider or narrower track-info block cannot push them off centre. The blur is
+          done on the web side: the page frosts the lyrics box itself (.lyrics-pane, a white film plus filter:blur on the lyric
+          content, see style.css), so the single visible plate is exactly as wide and as tall as the lyrics box and follows the
+          bar's width for free. This WPF layer draws no plate of its own: an extra tint would only add a second, smaller box
+          that does not line up with the lyrics box, which is precisely what was asked to be fixed. WebView2 is a composition control
+          that WPF effects cannot reach, so the page itself is the only thing able to blur the lyrics. Visibility answers to the panel's Tag alone, set
+          by the code-behind: whether the pointer is inside the window is decided in the HwndSource message hook
+          (WM_MOUSEMOVE / WM_MOUSELEAVE) rather than WPF's IsMouseOver, whose hit testing over the WebView2 region is not fully
+          reliable while the hook sees the raw window messages. No local Visibility may be written here: a local value outranks
+          the style trigger, so a single Collapsed would stick forever.
+        -->
+        <Grid x:Name="TransportPanel"
+              Grid.Row="0"
+              Grid.Column="0"
+              HorizontalAlignment="Stretch"
+              VerticalAlignment="Stretch"
+              Margin="0,0,4,0"
+              Tag="Hidden">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="Shown">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
+
+            <!-- 这里不放底板：屏幕上那层磨砂就是 Web 端的歌词框本身，多垫一层只会多出一个尺寸对不上的小框。 -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="2,0">
+                <Button x:Name="PreviousButton" Content="&#xE892;" Style="{StaticResource TransportButton}" ToolTip="上一首（也可以向上滚动鼠标滚轮）" />
+                <Button x:Name="PlayPauseButton" Content="&#xE768;" Style="{StaticResource TransportButton}" ToolTip="播放 / 暂停" />
+                <Button x:Name="NextButton" Content="&#xE893;" Style="{StaticResource TransportButton}" ToolTip="下一首（也可以向下滚动鼠标滚轮）" />
+            </StackPanel>
+        </Grid>
+
+        <Border x:Name="ProgressTrack" Grid.Row="1" Background="#33FFFFFF" Visibility="Collapsed">
+            <Border x:Name="ProgressFill"
+                    HorizontalAlignment="Left"
+                    Background="#FFFFFFFF"
+                    Width="0" />
+        </Border>
+    </Grid>
+</Window>

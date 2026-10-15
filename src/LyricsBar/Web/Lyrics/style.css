@@ -1,0 +1,758 @@
+@property --word-scan-progress {
+  syntax: "<percentage>";
+  inherits: true;
+  initial-value: 0%;
+}
+
+@property --line-scroll-offset {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
+:root {
+  --font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", sans-serif;
+  --font-size: 13px;
+  --font-weight: 500;
+  --primary: rgba(255, 255, 255, 0.90);
+  --secondary: rgba(255, 255, 255, 0.60);
+  --translation: rgba(255, 255, 255, 0.70);
+  --word-scan-overlay: rgba(255, 255, 255, 0.75);
+  --word-scan-base: rgba(255, 255, 255, 0.45);
+  --word-scan-feather-width: 0.12em;
+  --row-height: 14px;
+  --row-gap: 1px;
+  --line-pitch: 15px;
+  --current-size: 13px;
+  --next-size: 12px;
+  --cover-size: 34px;
+  --cover-gap: 8px;
+  --cover-radius: 6px;
+  --track-info-width: 0px;
+  --track-info-gap: 0px;
+  --layout-padding-inline: 4px;
+  --lyrics-pane-padding-top: 3px;
+  --lyrics-pane-padding-right: 4px;
+  --lyrics-pane-padding-left: 2px;
+  --primary-offset-y: 1px;
+  --secondary-offset-y: 2px;
+  --line-text-padding-bottom: 2px;
+  --surface-radius: 8px;
+  --layer-transition-offset: 2px;
+  --cover-fallback-font-size: 13px;
+  --spectrum-width: 210px;
+  --spectrum-height: 22px;
+  --spectrum-gap: 3px;
+  --spectrum-bar-width: 3px;
+  --spectrum-bar-height: 8px;
+  --spectrum-low-height: 6px;
+  --spectrum-high-height: 18px;
+  --spectrum-middle-height: 11px;
+  --surface-color: transparent;
+  --surface-shadow: none;
+  --text-shadow: 0 1px 2px rgba(0, 0, 0, 0.36);
+  --line-transform-origin: left center;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--font-family);
+  color: var(--primary);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+.layout {
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--layout-padding-inline);
+  overflow: hidden;
+  background: var(--surface-color);
+  border: 0;
+  border-radius: var(--surface-radius);
+  box-shadow: var(--surface-shadow);
+  /* 按钮浮层的磨砂底是绝对定位的，需要一个定位祖先。 */
+  /* The button plate's frosted backdrop is absolutely positioned, so it needs a positioned ancestor. */
+  position: relative;
+}
+
+.shell {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  /* 四列：封面、封面与曲目信息之间的固定间距、曲目信息块、歌词。
+     曲目信息块的宽度由宿主用 WPF 量好后经 --track-info-width 下发，间距走它自己的 margin-inline-end，
+     这样收起时把宽度和间距一起归零（--track-info-width:0px; --track-info-gap:0px），整列就等于不存在，
+     不需要额外多一列去承载"隐藏时的间距"。
+     Four columns: artwork, the fixed gap between artwork and track info, the track-info block, and the lyrics. The host
+     measures the track-info width in WPF and hands it down through --track-info-width, while the gap rides the block's own
+     margin-inline-end: collapsing zeroes width and gap together (--track-info-width:0px; --track-info-gap:0px) so the column
+     simply ceases to exist, with no extra column needed to carry a "hidden gap". */
+  grid-template-columns: var(--cover-size) var(--cover-gap) var(--track-info-width) minmax(0, 1fr);
+  align-items: center;
+}
+
+/* 封面关掉时网格里只剩两块，列定义必须跟着缩到两列，否则歌词会被塞进零宽的那一列。 */
+/* With artwork off only two items remain in the grid, so the column list has to shrink to two as well; otherwise the lyrics
+   get placed into the zero-width column. */
+.cover-hidden .shell {
+  grid-template-columns: var(--track-info-width) minmax(0, 1fr);
+}
+
+.cover-hidden :is(.cover, .cover-gap) {
+  display: none;
+}
+
+/* 悬停浮层的磨砂底：按钮本体是 WPF 控件、盖在这层之上，这里负责在歌词上压一层白膜。
+   它盖的是 .lyrics-pane（inset:0，即"显示歌词的那一块"），不是整条栏：封面与曲目信息不在其中。
+   pane 的宽高每帧由 WPF 重新量出来，所以栏宽/栏高变化时这一层自动同步，不必宿主下发宽度。
+   显隐由 .layout.overlay-visible 切换。
+   The hover overlay's frosted layer: the buttons themselves are WPF controls layered above this, so this element only has to
+   film over the lyrics. It covers .lyrics-pane (inset:0, i.e. exactly the box that shows lyrics) rather than the whole bar, so
+   the cover art and the track info are outside it. The pane's box is re-measured by WPF every frame, so width and height
+   changes come along for free and the host never has to send a width. .layout.overlay-visible toggles it. */
+.overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.12);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+}
+
+/* 真正的"糊"作用在内容本身，而不是 backdrop-filter：实测在这个 WebView2 的透明合成里，backdrop-filter 几乎不生效
+   （悬停前后文字边缘能量只掉 15%，基本全是上面那层白膜带来的对比度压缩），而 filter 直接作用于内容，效果确定。
+   糊的范围就是两个歌词层本身——底下的 .overlay-backdrop 只盖 .lyrics-pane，所以封面与曲目信息保持清晰；
+   按钮是 WPF 层，本来就不受这里影响。
+   The actual blur is applied with a filter on the content rather than with backdrop-filter: measured in this WebView2's
+   transparent composition, backdrop-filter barely does anything (text edge energy only dropped 15% across a hover, which is
+   just the contrast compression from the film above), whereas filter acts on the content directly and is deterministic. What
+   gets blurred is exactly the two lyric layers; the .overlay-backdrop underneath covers only .lyrics-pane, so the cover art
+   and the track info stay sharp, and the buttons are a WPF layer that is unaffected either way. */
+.lyrics-layer,
+.spectrum-layer {
+  transition: filter 140ms ease;
+}
+
+.layout.overlay-visible .lyrics-layer,
+.layout.overlay-visible .spectrum-layer {
+  filter: blur(7px);
+}
+
+.layout.overlay-visible .overlay-backdrop {
+  opacity: 1;
+}
+
+/* 曲目信息块：封面右侧、歌词左侧的独立一块，不参与歌词那两行的任何动效。
+   宽度是宿主的决定（WPF 已按字体精确量过），这里只负责把文字塞进这块宽度里并在必要时省略。
+   The track-info block: a standalone piece right of the artwork and left of the lyrics, taking part in none of the lyric rows'
+   animation. The width is the host's call — WPF already measured it precisely against the font — and this rule only has to fit
+   the text into that width and ellipsize when it does not. */
+.track-info {
+  width: var(--track-info-width);
+  margin-inline-end: var(--track-info-gap);
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: var(--row-gap);
+  overflow: hidden;
+}
+
+/* 文字的左右对齐跟随歌词的排版设置：曲目信息紧挨着歌词，两边对齐方式不一致会显得整条栏是歪的。 */
+/* Text alignment follows the lyrics' own alignment setting: track info sits right beside the lyrics, and mismatched alignment
+   on the two makes the whole bar look crooked. */
+.layout[data-text-alignment="Center"] .track-info {
+  align-items: center;
+}
+
+.layout[data-text-alignment="Right"] .track-info {
+  align-items: flex-end;
+}
+
+.track-info-title,
+.track-info-artist {
+  display: block;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.12;
+}
+
+/* 曲名用主行那一档字号与颜色，歌手用第二行那一档——与歌词两行的视觉层级一致。 */
+/* The title uses the main row's size and colour, the artist the second row's, matching the lyric rows' visual hierarchy. */
+.track-info-title {
+  font-size: var(--current-size);
+  color: var(--primary);
+  opacity: 0.98;
+}
+
+.track-info-artist {
+  font-size: var(--next-size);
+  color: var(--secondary);
+  opacity: 0.72;
+}
+
+/* 歌手为空时整行不占高度，曲名才能像单行歌词那样垂直居中。 */
+/* An empty artist takes no height, so a title-only block centres vertically the way a single lyric line does. */
+.track-info-artist:empty {
+  display: none;
+}
+
+.cover {
+  width: var(--cover-size);
+  height: var(--cover-size);
+  border-radius: var(--cover-radius);
+  overflow: hidden;
+  position: relative;
+  background: #1f2937;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+  opacity: 1;
+  filter: saturate(1) brightness(1);
+  transition:
+    opacity 520ms cubic-bezier(0.16, 1, 0.3, 1),
+    filter 520ms cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 420ms ease;
+}
+
+.cover.switching {
+  opacity: 0.92;
+  filter: saturate(0.94) brightness(0.96);
+}
+
+.cover-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--cover-fallback-font-size);
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.96);
+  user-select: none;
+  -webkit-user-select: none;
+  opacity: 1;
+  transition: opacity 360ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.cover.switching .cover-fallback {
+  opacity: 0.58;
+}
+
+.cover-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+  transition: opacity 440ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity;
+}
+
+.lyrics-pane {
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  padding: var(--lyrics-pane-padding-top) var(--lyrics-pane-padding-right) 0 var(--lyrics-pane-padding-left);
+}
+
+.lyrics-layer,
+.spectrum-layer {
+  position: absolute;
+  min-width: 0;
+  overflow: hidden;
+  transition:
+    opacity var(--layer-transition-duration, 300ms) cubic-bezier(0.2, 0.9, 0.1, 1),
+    transform var(--layer-transition-duration, 300ms) cubic-bezier(0.2, 0.9, 0.1, 1);
+  will-change: opacity, transform;
+}
+
+.lyrics-layer {
+  inset: var(--lyrics-pane-padding-top) var(--lyrics-pane-padding-right) 0 var(--lyrics-pane-padding-left);
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.spectrum-layer {
+  inset: 0 var(--lyrics-pane-padding-right) 0 var(--lyrics-pane-padding-left);
+  display: flex;
+  align-items: center;
+  opacity: 0;
+  transform: translateY(var(--layer-transition-offset));
+  pointer-events: none;
+}
+
+.layout.spectrum-mode .lyrics-layer {
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--layer-transition-offset)));
+}
+
+.layout.spectrum-mode .spectrum-layer {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Keep the spectrum visible while a non-spectrum frame is prepared below it. */
+.layout.spectrum-mode.spectrum-exiting .lyrics-layer {
+  opacity: 0;
+  transform: translateY(var(--line-pitch));
+}
+
+.layout.spectrum-mode.spectrum-exiting .spectrum-layer {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.layout.spectrum-mode.spectrum-exiting .lyrics-layer,
+.layout.spectrum-mode.spectrum-exiting .spectrum-layer {
+  transition: none;
+}
+
+.layout.spectrum-mode.spectrum-exiting.spectrum-exit-active .lyrics-layer {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity var(--layer-transition-duration, 300ms) cubic-bezier(0.2, 0.9, 0.1, 1),
+    transform var(--layer-transition-duration, 300ms) cubic-bezier(0.2, 0.9, 0.1, 1);
+}
+
+.layout.spectrum-mode.spectrum-exiting.spectrum-exit-active .spectrum-layer {
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--line-pitch)));
+  transition:
+    opacity var(--layer-transition-duration, 300ms) cubic-bezier(0.2, 0.9, 0.1, 1),
+    transform var(--layer-transition-duration, 300ms) cubic-bezier(0.2, 0.9, 0.1, 1);
+}
+
+.layout.spectrum-transitioning .lyrics-layer,
+.layout.spectrum-transitioning .spectrum-layer {
+  transition: none;
+}
+
+.layout.spectrum-transitioning.spectrum-entry-active .lyrics-layer,
+.layout.spectrum-transitioning.spectrum-entry-active .spectrum-layer {
+  transition:
+    opacity var(--layer-transition-duration, 300ms) cubic-bezier(0.22, 0.72, 0.24, 1),
+    transform var(--layer-transition-duration, 300ms) cubic-bezier(0.22, 0.72, 0.24, 1);
+}
+
+.layout.spectrum-transitioning .lyrics-layer {
+  opacity: 0;
+  transform: translateY(calc(-1 * var(--line-pitch)));
+}
+
+.layout.spectrum-transitioning .spectrum-layer {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.layout.spectrum-audio-driven .spectrum span {
+  animation: none;
+  transition: none;
+}
+
+/*
+  频谱不可见时（歌词/待机场景）停掉脉冲动画：.spectrum-layer 只靠 opacity 隐藏，CSS 无限动画仍会在后台逐帧运行，
+  而它动画的是 height（每帧触发布局）；实测歌词模式下 Web 渲染进程为此常年多烧约 16% 的 CPU。进入频谱场景后本规则
+  失效，脉冲与音频驱动的淡入都照常。
+  Stop the pulse animation while the spectrum is not visible (lyrics/idle scenes): .spectrum-layer is hidden by opacity
+  alone, so the infinite CSS animation keeps running — and it animates height, which lays out every frame; measured at
+  roughly 16% of a core continuously while the bar only showed lyrics. Entering the spectrum scene lifts this rule, so the
+  idle pulse and the audio-driven fade-in behave exactly as before.
+*/
+.layout:not(.spectrum-mode) .spectrum span {
+  animation: none;
+}
+
+.viewport {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  display: block;
+}
+
+.track {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--row-gap);
+  transform: none;
+  translate: 0 0;
+  transition: translate 560ms cubic-bezier(0.22, 0.72, 0.24, 1);
+}
+
+/* Reserve the roll slots, but center the visible row and suppress an empty secondary row. */
+.layout.single-line .track {
+  translate: 0 var(--single-line-offset, 0px);
+}
+
+.layout.single-line .track > .next-line:not(.promoting):not(.incoming-line) {
+  opacity: 0 !important;
+}
+
+.track.animating {
+  transition:
+    transform 560ms cubic-bezier(0.22, 0.72, 0.24, 1),
+    translate 560ms cubic-bezier(0.22, 0.72, 0.24, 1);
+  will-change: transform;
+}
+
+.track.animating.translation-pair-animating {
+  transition-duration: 760ms;
+}
+
+.track.no-anim {
+  transition: none !important;
+}
+
+.track.no-anim .line {
+  transition: none !important;
+}
+
+.line {
+  position: relative;
+  height: var(--row-height);
+  min-height: var(--row-height);
+  display: flex;
+  align-items: center;
+  line-height: 1.12;
+  letter-spacing: var(--letter-spacing, 0);
+  transform-origin: var(--line-transform-origin);
+  text-shadow: var(--text-shadow);
+  overflow: visible;
+  transition:
+    opacity 560ms cubic-bezier(0.22, 0.72, 0.24, 1),
+    color 280ms ease,
+    transform 560ms cubic-bezier(0.22, 0.72, 0.24, 1);
+}
+
+.line-text {
+  grid-area: 1 / 1;
+  display: block;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: inherit;
+  padding-bottom: var(--line-text-padding-bottom);
+}
+
+.line.word-scan-smoothing {
+  transition:
+    opacity 560ms cubic-bezier(0.22, 0.72, 0.24, 1),
+    color 280ms ease,
+    transform 560ms cubic-bezier(0.22, 0.72, 0.24, 1),
+    --word-scan-progress 90ms linear;
+}
+
+.line-text-viewport {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.line-text-stack {
+  display: grid;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  margin-inline-start: 0;
+  margin-inline-end: auto;
+}
+
+.layout[data-text-alignment="Center"] .line-text-stack {
+  margin-inline: auto;
+}
+
+.layout[data-text-alignment="Right"] .line-text-stack {
+  margin-inline-start: auto;
+  margin-inline-end: 0;
+}
+
+/* 左右分离：主行保持靠左（默认值），第二行推到右端，两行分列两端。
+   第二行同时要把逐字擦亮的起点换到右边，否则它会从自己的中间往右长出来。
+   Left/right separation: the main row keeps the default left alignment and the second row is pushed to the right edge.
+   The second row also has to move its syllable-scan origin to the right, or its wipe would grow rightwards out of its
+   middle. */
+.layout[data-text-alignment="Split"] :is(.next-line, .translation-line) .line-text-stack {
+  margin-inline-start: auto;
+  margin-inline-end: 0;
+}
+
+.layout[data-text-alignment="Split"] :is(.next-line, .translation-line) {
+  transform-origin: right center;
+}
+
+/*
+  左右分离：第二行升格为主行的那一次上滚（.promoting）里，它从第一帧起就必须已经是主行的靠左对齐。
+  否则整段 560ms 的上滚过程中，这句"新主行"都还按第二行的规则贴在右端，滚到主行位置、收尾时才被
+  setCurrentLine 换进主行元素、瞬间跳到左边——看上去就是"新歌词先在右上方冒出来，再跳到左上方"。
+  提前换成靠左之后它自始至终都长在它最终的位置上，收尾那一下只是把文本从第二行元素搬进主行元素，不再有横跳。
+  transform-origin 一并换成左边：升格时的缩放本来就是"从第二行字号放大到主行字号"，靠左对齐时绕右边缘缩放会往左飘。
+  这两条选择器的优先级都高于上面的 Split 规则（多了一个 .promoting 类），不需要 !important。
+  Left/right separation: during the roll that promotes the second row (.promoting) it has to be left-aligned like the
+  main row from the very first frame. Otherwise the promoted line stays glued to the right edge for the whole 560ms
+  roll and only jumps left at the end, when setCurrentLine swaps it into the main-row element — which reads as "the new
+  line pops up on the upper right and then hops to the upper left". Aligning it early keeps it on its final position the
+  whole way, and the hand-off at the end is just moving the text between elements with no horizontal jump. The
+  transform-origin moves to the left with it: the promotion scales the second row's font size up to the main row's, and
+  scaling around the right edge would drift leftwards once the text hugs the left edge. Both selectors outrank the Split
+  rules above by one class, so no !important is needed.
+*/
+.layout[data-text-alignment="Split"] .next-line.promoting .line-text-stack {
+  margin-inline-start: 0;
+  margin-inline-end: auto;
+}
+
+.layout[data-text-alignment="Split"] .next-line.promoting {
+  transform-origin: left center;
+}
+
+.line.horizontal-scrolling .line-text-stack {
+  width: max-content;
+  max-width: none;
+  margin-inline-start: 0;
+  margin-inline-end: 0;
+  transform: translateX(var(--line-scroll-offset));
+}
+
+.line.horizontal-scrolling .line-text {
+  width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.line.horizontal-scrolling.word-scan-smoothing .line-text-stack {
+  transition: transform 90ms linear;
+  will-change: transform;
+}
+
+.line-text-scan {
+  color: var(--primary);
+  visibility: hidden;
+  clip-path: inset(0 100% 0 0);
+  pointer-events: none;
+}
+
+.current-line {
+  font-size: var(--current-size);
+  font-weight: var(--font-weight);
+  color: var(--primary);
+  opacity: 0.98;
+  top: var(--primary-offset-y);
+  transform: none;
+}
+
+.current-line.word-scanning .line-text-base,
+.next-line.promoting.word-scanning .line-text-base {
+  color: var(--word-scan-base);
+  clip-path: inset(0 0 0 var(--word-scan-progress));
+}
+
+.current-line.word-scanning .line-text-scan,
+.next-line.promoting.word-scanning .line-text-scan {
+  visibility: visible;
+  clip-path: inset(0 calc(100% - var(--word-scan-progress)) 0 0);
+}
+
+@supports ((mask-image: linear-gradient(to right, #000, transparent)) or
+  (-webkit-mask-image: linear-gradient(to right, #000, transparent))) {
+  .current-line.word-scanning .line-text-base,
+  .next-line.promoting.word-scanning .line-text-base {
+    clip-path: none;
+  }
+
+  .current-line.word-scanning .line-text-scan,
+  .next-line.promoting.word-scanning .line-text-scan {
+    --word-scan-effective-feather: min(
+      var(--word-scan-feather-width),
+      var(--word-scan-progress),
+      calc(100% - var(--word-scan-progress)));
+    clip-path: none;
+    color: var(--word-scan-overlay);
+    -webkit-mask-image: linear-gradient(
+      to right,
+      #000 0,
+      #000 calc(var(--word-scan-progress) - var(--word-scan-effective-feather)),
+      transparent calc(var(--word-scan-progress) + var(--word-scan-effective-feather)),
+      transparent 100%);
+    mask-image: linear-gradient(
+      to right,
+      #000 0,
+      #000 calc(var(--word-scan-progress) - var(--word-scan-effective-feather)),
+      transparent calc(var(--word-scan-progress) + var(--word-scan-effective-feather)),
+      transparent 100%);
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+  }
+}
+
+.next-line {
+  --promotion-scale: 1;
+  font-size: var(--next-size);
+  font-weight: var(--font-weight);
+  color: var(--secondary);
+  opacity: 0.72;
+  top: var(--secondary-offset-y);
+  transform: none;
+}
+
+.incoming-line {
+  opacity: 0;
+}
+
+.layout.translation-mode .track > .next-line:not(.incoming-line),
+.translation-line {
+  font-size: var(--next-size);
+  font-weight: var(--font-weight);
+  color: var(--translation);
+  opacity: 1;
+  top: var(--secondary-offset-y);
+}
+
+.layout.translation-mode .track > .next-line.translation-placeholder:not(.incoming-line),
+.translation-line.translation-placeholder {
+  opacity: 0.55;
+}
+
+.layout.translation-mode .incoming-line {
+  display: none;
+}
+
+.layout.translation-mode .track > .next-line:not(.incoming-line) .line-text-scan {
+  visibility: hidden;
+}
+
+.incoming-translation-pair {
+  display: none;
+  width: 100%;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: var(--row-gap);
+  pointer-events: none;
+}
+
+.layout.translation-mode .incoming-translation-pair.preparing,
+.layout.translation-mode .incoming-translation-pair.entering {
+  display: flex;
+}
+
+.incoming-translation-pair.no-anim {
+  transition: none !important;
+}
+
+.current-line.leaving {
+  opacity: 0.16;
+  transform: scale(0.972);
+}
+
+.next-line.promoting {
+  color: var(--primary);
+  transform: translateY(calc(var(--primary-offset-y) - var(--secondary-offset-y))) scale(var(--promotion-scale));
+}
+
+.track.word-scan-transition .next-line.promoting {
+  color: var(--secondary);
+}
+
+.spectrum {
+  width: min(var(--spectrum-width), 100%);
+  height: var(--spectrum-height);
+  display: flex;
+  align-items: center;
+  gap: var(--spectrum-fitted-gap, var(--spectrum-gap));
+  opacity: 0.92;
+  transition: opacity 260ms ease;
+}
+
+.spectrum span {
+  width: var(--spectrum-fitted-bar-width, var(--spectrum-bar-width));
+  flex: 0 0 var(--spectrum-fitted-bar-width, var(--spectrum-bar-width));
+  height: var(--spectrum-bar-height);
+  border-radius: 999px;
+  background: var(--primary);
+  box-shadow: var(--text-shadow);
+  opacity: 0.72;
+  transform-origin: center bottom;
+  transition: opacity 260ms ease;
+  animation: spectrumPulse 1380ms ease-in-out infinite;
+  animation-delay: calc(var(--i) * -83ms);
+}
+
+.spectrum span:nth-child(3n) {
+  animation-duration: 1160ms;
+  opacity: 0.62;
+}
+
+.spectrum span:nth-child(4n) {
+  animation-duration: 1540ms;
+  opacity: 0.82;
+}
+
+.spectrum span:nth-child(5n) {
+  animation-duration: 1280ms;
+}
+
+@keyframes spectrumPulse {
+  0%, 100% {
+    height: var(--spectrum-low-height);
+    transform: scaleY(0.72);
+  }
+
+  42% {
+    height: var(--spectrum-high-height);
+    transform: scaleY(1);
+  }
+
+  68% {
+    height: var(--spectrum-middle-height);
+    transform: scaleY(0.86);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lyrics-layer,
+  .spectrum-layer,
+  .layout.spectrum-mode.spectrum-exiting.spectrum-exit-active .lyrics-layer,
+  .layout.spectrum-mode.spectrum-exiting.spectrum-exit-active .spectrum-layer,
+  .layout.spectrum-transitioning .lyrics-layer,
+  .layout.spectrum-transitioning .spectrum-layer {
+    transition: none;
+    will-change: auto;
+  }
+
+  .line,
+  .line.word-scan-smoothing {
+    transition: none;
+  }
+
+  .track,
+  .track.animating {
+    transition: none;
+    will-change: auto;
+  }
+
+  .line.horizontal-scrolling.word-scan-smoothing .line-text-stack {
+    transition: none;
+    will-change: auto;
+  }
+}
