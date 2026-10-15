@@ -32,6 +32,12 @@ public sealed class NetEaseLyricsProvider : ILyricsProvider
             SourceName,
             request,
             cancellationToken);
+        // 按 id 取词就是这首歌本身，给满分是应当的——但前提是 id 真的属于当前曲目：
+        // `NeteaseQueueService` 只在曲名完全相等、而且歌手对得上（或队列里只此一首同名曲）时才交出 id，
+        // 歌手对不上、同名曲多首时一律不给，这里也就不会有"另一首歌的歌词拿满分"。
+        // Fetching by id is this very song, so full marks are warranted — as long as the id really belongs to the current
+        // track: `NeteaseQueueService` hands one back only on an exact title plus a confirmed artist (or a lone namesake),
+        // and yields nothing on an artist mismatch or several namesakes, so no other song's lyrics can score full marks here.
         return result is null ? null : result with { MatchScore = 100 };
     }
 }

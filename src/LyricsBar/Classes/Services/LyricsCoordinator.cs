@@ -128,6 +128,13 @@ public sealed class LyricsCoordinator : IDisposable
         }
 
         _latestTrackKey = key;
+
+        // 换歌就记一行：真出问题时，"当时在放哪首歌"是唯一能把界面上的歌词和曲目对上的凭据。
+        // One line per track change: when something goes wrong, "what was playing" is the only way to line the lyrics on
+        // screen up against the track afterwards.
+        if (!string.IsNullOrWhiteSpace(snapshot.Title))
+            Log.Info("Lyrics", $"换歌: {snapshot.Title} — {snapshot.Artist}（{snapshot.SourceName}）");
+
         _latest = snapshot with { Lyrics = null, LyricsLookupCompleted = false };
         SnapshotUpdated?.Invoke(_latest);
 

@@ -18,8 +18,9 @@ namespace LyricsBar.Classes.Services;
 /// 于是"按曲名 + 歌手在队列里反查 id"就够了：命中就用那个 id 精确取词，没命中就什么都不做（退回今天的行为）。
 ///
 /// 这条路的稳健性来自三点：① 只读文件，不写、不注入、不依赖任何内存偏移；② 队列文件在播放歌单时是稳定的，
-/// 不会像"当前曲目"那样每首歌都变；③ 匹配要求曲名（含别名）**归一化后完全相等**，歌手再叠一层校验，
-/// 匹配不上就不给 id，最坏情况就是退回原来的搜索路径。
+/// 不会像"当前曲目"那样每首歌都变；③ 匹配要求曲名（含别名）**归一化后完全相等**，而且歌手必须对得上——
+/// 歌手对不上、或者同名曲不止一首时一律不给 id，最坏情况就是退回原来的搜索路径。
+/// （同名曲里随便挑一首交出去，用户看到的就是另一首歌的歌词：那条路命中即 100 分，还会让这一轮取词提前结束。）
 /// Reads the id of the currently playing track out of NetEase CloudMusic's own local play queue so the exact-by-id lyric
 /// lookup — the most accurate path there is — can actually run.
 ///
@@ -35,8 +36,9 @@ namespace LyricsBar.Classes.Services;
 ///
 /// Three things make it robust: it only reads files — no writes, no injection, no memory offsets; the queue file is stable
 /// while a playlist plays rather than changing with every track; and a match requires the title (aliases included) to be
-/// **exactly equal after normalisation**, with the artist as a second check. No match means no id, and the worst case is
-/// simply the old search path.
+/// **exactly equal after normalisation** *and* the artist to be confirmed. An artist mismatch, or more than one namesake in
+/// the queue, yields no id at all, and the worst case is simply the old search path — handing back one of several namesakes
+/// is precisely how another song's lyrics end up on screen.
 /// </summary>
 internal sealed class NeteaseQueueService
 {
@@ -57,6 +59,10 @@ internal sealed class NeteaseQueueService
     private readonly List<QueueTrack> _tracks = [];
     private readonly List<(string Path, long Length, DateTime LastWrite)> _fingerprint = [];
     private DateTime _lastAttemptUtc = DateTime.MinValue;
+
+    /// <summary>上一次记过日志的判定文本：同一首歌会被反复解析（重试、诊断），日志不该反复刷同样的行。
+    /// The last verdict that was logged: one track is resolved repeatedly (retries, diagnostics), so each verdict is logged once.</summary>
+    private string _lastResolution = string.Empty;
 
     /// <summary>重新读取队列的最小间隔：换歌才查一次，短时间内连切几首时不要反复读 1.4MB 的文件。</summary>
     private static readonly TimeSpan MinimumReloadInterval = TimeSpan.FromSeconds(2);
@@ -81,23 +87,47 @@ internal sealed class NeteaseQueueService
                 return null;
 
             var wantedArtist = Normalize(artist);
-            QueueTrack? fallback = null;
+            List<QueueTrack>? unconfirmed = null;
             foreach (var track in _tracks)
             {
                 if (track.Id.Length == 0 || !MatchesTitle(track, wantedTitle))
                     continue;
 
-                // 歌手对得上就是它；对不上先记着——同一份队列里同名不同歌手的概率很低，
-                // 但真的出现时"曲名完全相等 + 歌手部分包含"仍然比"什么都不给"更有价值。
-                // An artist match settles it; a mismatch is remembered instead, because two same-titled tracks by different
-                // artists in one queue are rare, and a title-exact match still beats handing back nothing.
-                if (wantedArtist.Length == 0 || MatchesArtist(track, wantedArtist))
+                // 歌手对得上才叫确认。这是唯一一条"确定就是这首歌"的路。
+                // An artist match is the only confirmed identification.
+                if (wantedArtist.Length > 0 && MatchesArtist(track, wantedArtist))
+                {
+                    LogResolution($"网易云队列命中「{Describe(track)}」，按 id 精确取词：ID={track.Id}");
                     return track.Id;
+                }
 
-                fallback ??= track;
+                (unconfirmed ??= []).Add(track);
             }
 
-            return fallback?.Id;
+            // 歌手没确认过的时候，只有"队列里只此一首同名曲"这种没有歧义的情况才给 id。
+            // 同名多首却挑一首交出去，就是"放 A 显示 B 的歌词"：那条路命中即 100 分，还会让这一轮取词提前结束，
+            // 其它来源再准也没有机会上场，用户在界面上完全看不出是另一个 id 的歌词。
+            // Without a confirmed artist, an id is handed back only when the queue holds exactly one track of that title.
+            // Picking one of several namesakes is how the *other* song's lyrics get shown: that path scores a flat 100 and
+            // ends the round early, so no other source can compete and nothing on screen reveals the wrong id.
+            if (unconfirmed is not { Count: 1 })
+            {
+                if (unconfirmed is { Count: > 1 })
+                    LogResolution($"网易云队列里有 {unconfirmed.Count} 首同名曲，歌手都对不上，跳过按 id 精确取词：" +
+                        $"当前「{title} — {artist}」，队列同名曲 {string.Join("、", unconfirmed.Select(Describe))}");
+                return null;
+            }
+
+            var only = unconfirmed[0];
+            if (wantedArtist.Length == 0 || only.Artists.Count == 0)
+            {
+                LogResolution($"网易云队列里唯一同名曲「{Describe(only)}」，按 id 精确取词：ID={only.Id}");
+                return only.Id;
+            }
+
+            LogResolution($"网易云队列里「{Describe(only)}」的歌手与当前曲目对不上，跳过按 id 精确取词：" +
+                $"当前「{title} — {artist}」");
+            return null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException or NotSupportedException)
         {
@@ -107,6 +137,21 @@ internal sealed class NeteaseQueueService
             Log.Warn("Lyrics", $"读取网易云播放队列失败: {ex.GetType().Name} {ex.Message}");
             return null;
         }
+    }
+
+    /// <summary>队列条目的可读写法，只用于日志。/ Human-readable queue entry, for logs only.</summary>
+    private static string Describe(QueueTrack track) =>
+        track.Artists.Count == 0 ? track.Title : $"{track.Title} — {string.Join(" / ", track.Artists)}";
+
+    /// <summary>把"这次到底按哪个 id 取词、为什么没给 id"写进日志，只写一次：这是这类错配事后唯一能查的凭据。
+    /// Records which id was used, or why none was, and only once — this is the evidence a mismatch needs afterwards.</summary>
+    private void LogResolution(string message)
+    {
+        if (string.Equals(message, _lastResolution, StringComparison.Ordinal))
+            return;
+
+        _lastResolution = message;
+        Log.Info("Lyrics", message);
     }
 
     /// <summary>队列文件变化时才重新解析；短时间内的连续调用直接复用上次结果。/ Re-parses only when a queue file changed; rapid repeat calls reuse the last result.</summary>

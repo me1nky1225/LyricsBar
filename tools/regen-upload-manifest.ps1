@@ -23,6 +23,8 @@ $notes = @{
     'docs/github-upload-manifest.csv'         = 'this manifest'
     'tools/PureMusicProbe/PureMusicProbe.csproj' = 'pure-music / no-lyrics presentation probe'
     'tools/PureMusicProbe/Program.cs'         = 'pure-music / no-lyrics presentation probe'
+    'tools/MatchProbe/MatchProbe.csproj'      = 'NetEase queue namesake / artist verification probe'
+    'tools/MatchProbe/Program.cs'             = 'NetEase queue namesake / artist verification probe'
     'tools/SettingsRoundTrip/SettingsRoundTrip.csproj' = 'real SettingsWindow read/write round-trip harness'
     'tools/SettingsRoundTrip/Program.cs'      = 'real SettingsWindow read/write round-trip harness'
     'tools/regen-upload-manifest.ps1'         = 'regenerates this manifest'
@@ -37,7 +39,7 @@ $excluded = @(
 
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add('# LyricsBar - GitHub upload manifest (repository files)')
-$lines.Add('# release version: 1.4.3 | repository files generated: 2026-10-15 | source root: LyricsBar')
+$lines.Add('# release version: 1.4.4 | repository files generated: 2026-10-15 | source root: LyricsBar')
 $lines.Add('# columns: path,bytes,modified,sha256,note')
 
 $total = 0

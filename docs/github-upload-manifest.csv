@@ -1,14 +1,14 @@
 # LyricsBar - GitHub upload manifest (repository files)
-# release version: 1.4.3 | repository files generated: 2026-10-15 | source root: LyricsBar
+# release version: 1.4.4 | repository files generated: 2026-10-15 | source root: LyricsBar
 # columns: path,bytes,modified,sha256,note
 .gitattributes,224,2026-10-15 20:18,1f9623e178fe3a04a79facf233226efc303794d4d144e1853cd0bec2b81b9fba,line-ending normalisation (store LF)
 .gitignore,739,2026-10-15 22:02,740be10a71f10ace47fe8af9466f915d5798dd7ba9e2fce15794e82884a92db4,excludes dist/ releases/ .preview/ bin/ obj/ *.log
-CHANGELOG.md,7745,2026-10-15 21:59,60609660e190d8fcbe533350107e6761413756745d59d97b36511df3ef83c854,version history
+CHANGELOG.md,9677,2026-10-15 22:33,53b8ead755710eb2adeadd8bda000ccee08e4c78066f26ffd4bad51687ac90ee,version history
 docs/_mdcheck.js,2267,2026-10-15 21:09,5c0a55ee56811f7070c659fbd2142fd6fcc7e619b4e3a26073c59e657cbe3be1,maintainer tool: markdown lint used on these docs
 docs/settings-preview.png,88246,2026-10-15 14:42,ff34f45cbc0a7d516c93c9c027928d3f700c25caead454618e238a0602d4ad5c,settings window screenshot, referenced by both READMEs
 LICENSE,1065,2026-10-14 20:49,5597ee0ea2fb4e6e739e596222ead49076ba093f60a944737e0a89a07a527238,MIT
-README.md,21232,2026-10-15 22:04,a930a0b3ffb3d92ccc209f0ce49cefd4d6b0196cf615f7f4092e665f699f6115,Chinese README (the only README in this archive)
-README.zh-CN.md,21232,2026-10-15 22:04,a930a0b3ffb3d92ccc209f0ce49cefd4d6b0196cf615f7f4092e665f699f6115,Chinese README (byte-identical to README.md)
+README.md,22002,2026-10-15 22:36,62f268615c746dfbfebde1a0f5506c43613047f1728540f1fbf92f55a6f35670,Chinese README (the only README in this archive)
+README.zh-CN.md,22002,2026-10-15 22:36,62f268615c746dfbfebde1a0f5506c43613047f1728540f1fbf92f55a6f35670,Chinese README (byte-identical to README.md)
 src/LyricsBar/app.manifest,1408,2026-10-14 20:32,a04c4760834fb5e050137b29e3adf7a713a6230ffa73c462305910ba013414f5,
 src/LyricsBar/App.xaml,727,2026-10-14 20:38,d80b00d24cdced7f596a2f1fb8bb95e2434f41b3fd3b0e25ebea2ac262943987,
 src/LyricsBar/App.xaml.cs,9416,2026-10-15 18:35,c0f08be84545bce94896eb14d23dee0d04d90c4857f7df66bdb0b643dcb52db9,
@@ -57,16 +57,16 @@ src/LyricsBar/Classes/Services/Lyrics/Providers/LyricsSearch.cs,3156,2026-10-15 
 src/LyricsBar/Classes/Services/Lyrics/Providers/LyricsSearchQueryPolicy.cs,2205,2026-10-14 20:29,2d51dc6f289dd2adaa19b8f4fe7c21ad1563e5e6302536633af98fac06efc94a,
 src/LyricsBar/Classes/Services/Lyrics/Providers/NetEaseLyricFetcher.cs,4163,2026-10-14 20:29,e8db8f2cdbda03dd917bcb5194f9a937d2de1ad7a3b52adf7ba91d41936dd3b5,
 src/LyricsBar/Classes/Services/Lyrics/Providers/NetEaseLyricMerge.cs,6181,2026-10-14 20:29,06ab1d4a46779a490a2e655a37d115b6731ba55c540c3b2bea9ff297145b09e4,
-src/LyricsBar/Classes/Services/Lyrics/Providers/NetEaseLyricsProvider.cs,1261,2026-10-14 20:29,58809b8d06f4fb51e3d2b3cf86951d9d817efbaa389abed45437570a7468a89a,
+src/LyricsBar/Classes/Services/Lyrics/Providers/NetEaseLyricsProvider.cs,2014,2026-10-15 22:32,564c3fb8d4aeaf607f3aa8f52f98da580d5731828a455381ec0cf78e5e55482a,
 src/LyricsBar/Classes/Services/Lyrics/Providers/NetEaseSearchLyricsProvider.cs,1704,2026-10-14 20:29,b8d196dabbc555db63254b6a406c217735d4f3922897bff812fd73dbb4023e65,
 src/LyricsBar/Classes/Services/Lyrics/Providers/QQMusicLyricsProvider.cs,3930,2026-10-15 19:06,5884cf9ba5a429422730db7686bfd7fdf8f0047b29bb2dd27a4e30d0f1a8518e,
 src/LyricsBar/Classes/Services/Lyrics/Providers/SodaMusicLyricsProvider.cs,3057,2026-10-14 20:29,967108fbd14c4ec5761deba1ebd467e947c265ffaddd6d52becc35ca3d1208ad,
 src/LyricsBar/Classes/Services/Lyrics/WebView2GraphicsFaultPolicy.cs,2296,2026-10-14 20:29,0a1b9f6e55fd75cc6a5b568e06c7127ea039914fd4f826a50b76dfdf92f96e5a,
-src/LyricsBar/Classes/Services/LyricsCoordinator.cs,16991,2026-10-15 19:07,9307979b7ab054b6b0b2c53f8cf0b88669005a97d8af660c6405b67c6f649853,
+src/LyricsBar/Classes/Services/LyricsCoordinator.cs,17466,2026-10-15 22:32,7e644f20ccc896bfcd2feef4baa0e09f9f00d9b0da4dce18be9ea82ba1ab80b5,
 src/LyricsBar/Classes/Services/MediaSourceNameFormatter.cs,3693,2026-10-15 16:57,a3b1c09532eb1c863509fb9d1ca170193b90463cde91f7f6e4e6a64b60d96b6d,
 src/LyricsBar/Classes/Services/MediaTransportService.cs,6527,2026-10-15 11:31,5e81ab14d51c9fa8d56d104673480dda19ecb432f68d259a8a7bc33f51761f2d,
 src/LyricsBar/Classes/Services/NeteasePositionService.cs,27416,2026-10-15 17:20,6021e870a38e7c116501fa022aba51f017d2379a87a98ecf7ec69e0337565eb5,
-src/LyricsBar/Classes/Services/NeteaseQueueService.cs,14701,2026-10-15 19:07,fc6c4dda0478d3ec7ae133266dba2d574c2d6a94d65aaa2735c8b17437dcc27c,
+src/LyricsBar/Classes/Services/NeteaseQueueService.cs,17751,2026-10-15 22:31,20d31fe814b41853629af387ab8c6d934cc07381cf363394eab5fc5bbb69be97,
 src/LyricsBar/Classes/Services/SmtcMediaReader.cs,32671,2026-10-15 16:57,701fdc63a174de37a876476712f50d53fadf89c24cd69494426cff3e4a6abcf7,
 src/LyricsBar/Classes/Services/TaskbarDockService.cs,10791,2026-10-14 20:37,521a50539e03fddae6b1b5f15b260969ded8c1e1ef05097340fc9b74160ee638,
 src/LyricsBar/Classes/Services/TaskbarExperiencePolicy.cs,2624,2026-10-14 21:01,7b12a11e5b2d02ce0d5dce3496e7c9d7317a2bed2864778e0bea26a93fb06bc5,
@@ -79,7 +79,7 @@ src/LyricsBar/Classes/Settings/SettingsManager.cs,6662,2026-10-14 21:41,2f5d6fcb
 src/LyricsBar/Classes/Utils/Log.cs,1124,2026-10-14 20:31,7f77cd7274fcb8f4a7fd8293ad5989a4bfa6000daeb781ab805a17b01abf1b29,
 src/LyricsBar/Classes/Utils/LruCache.cs,9487,2026-10-14 20:29,b20495d1a5dbf31be6d5a9c1854c9c402662245c371f37e0514281f0abac9677,
 src/LyricsBar/Diagnostics.cs,16841,2026-10-15 19:14,cea0e163d2fdfde95f970856c7e5e571cf716b88cc2828a1dd074d94b9273e30,
-src/LyricsBar/LyricsBar.csproj,7644,2026-10-15 21:55,a6f34eceddd4728a9b263b15fab466ac3de51f5608fd7822cf5a40c6b0baec69,
+src/LyricsBar/LyricsBar.csproj,7644,2026-10-15 22:33,5222322d29f8ad87bde3f461acc1018c63f72b20e406c733aa4a4136ae11ef60,
 src/LyricsBar/LyricsBar.ico,96537,2026-10-15 11:46,d523799f81360d1ba42748f3efaf8a94b9cc72a0f9d0ce9109c0d13cee37b95e,
 src/LyricsBar/RenderPreview.cs,10692,2026-10-15 21:54,1728ac64411229302aa99f01a40bc2091ed21ec66beeead74843c92dc90f64c2,
 src/LyricsBar/Resources/Translations.cs,1618,2026-10-14 20:31,1f1635fada78b8b2685b29b67d7543456cc14c62b6d9a6c23acc70866d020564,
@@ -94,8 +94,10 @@ src/LyricsBar/Web/Lyrics/spacing.js,4049,2026-10-14 20:28,97559f860fd2f0e12c791e
 src/LyricsBar/Web/Lyrics/state.js,538,2026-10-14 20:28,4f47692dc034d61cafa3e3b1349635146898859a760cd021e2b06cdacf1f6e25,
 src/LyricsBar/Web/Lyrics/style.css,23961,2026-10-15 21:02,c452d30f9ba96c17375ed4d3fee535bace713153e8c8bd192bf96b79ba29e3cd,
 THIRD-PARTY-NOTICES.md,2218,2026-10-15 18:04,b548a8d49e595cada120dfaa7d3f4d9eaf8f161924110dc39a748aafc067b460,dependency and source-lineage notices
+tools/MatchProbe/MatchProbe.csproj,564,2026-10-15 22:29,a7b9676a2a8fd1abd9d6b4e64be18199144df882fff605b0b5eeb0728ecefd31,NetEase queue namesake / artist verification probe
+tools/MatchProbe/Program.cs,10415,2026-10-15 22:30,2538fe1be1b7471bf5f863330e966a91f85d7ae5c599f91c448e1e3068aa8901,NetEase queue namesake / artist verification probe
 tools/PureMusicProbe/Program.cs,7481,2026-10-15 21:55,118782bbb11e11487434bfc21cebc0a1ed54d2078d32818fd28e4fc0073b0b3f,pure-music / no-lyrics presentation probe
 tools/PureMusicProbe/PureMusicProbe.csproj,572,2026-10-15 21:51,bfc15eb8ad7801468a57202b37ab83a8e6dc50100263be66aca62feb85521520,pure-music / no-lyrics presentation probe
-tools/regen-upload-manifest.ps1,3608,2026-10-15 22:04,d2d24dc2cdc29221cbc263068449362b25d857d449d24e135dc89058731501ad,regenerates this manifest
+tools/regen-upload-manifest.ps1,3810,2026-10-15 22:36,3fc7edbd30581a61d4305b4eb5b2d0684aea3399602f8dfa8363e5dc4db51b0b,regenerates this manifest
 tools/SettingsRoundTrip/Program.cs,6189,2026-10-15 22:03,702ad46a04c1ab8f46f3be4c7ea2fcf1e2e3dfa55ce680d91b6e51f1eb1e0cad,real SettingsWindow read/write round-trip harness
 tools/SettingsRoundTrip/SettingsRoundTrip.csproj,738,2026-10-15 19:24,3e2211bf2f150373a995dd54dc8e15e69f4b858ce6dc6cd2c4dc20d84aac7048,real SettingsWindow read/write round-trip harness
