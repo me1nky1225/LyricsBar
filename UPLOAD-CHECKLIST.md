@@ -89,6 +89,10 @@ git push -u origin main
 
 > 线上已经发过 `v1.4.2`（标题 `LyricsBar v1.4.2 — 文字颜色常用色板`，附件 186,193,559 字节的那份 exe）。
 > v1.4.2 的色板已在 v1.4.3 回退，因此**再发一个 v1.4.3**，不要覆盖 v1.4.2 的 tag。
+>
+> **本节已于 2026-10-15 执行完毕**：tag `v1.4.3` → 提交 `7457ad0`，Release
+> https://github.com/me1nky1225/LyricsBar/releases/tag/v1.4.3 已发布（正文取自 `CHANGELOG.md` 的 1.4.3 段），
+> 附件 `LyricsBar.exe`（186,189,463 字节，`state=uploaded`）。下面的步骤留作以后发版参考。
 
 1. Tag 名 `v1.4.3`，目标选 `main`。
 2. 标题：`LyricsBar v1.4.3 — 回退文字颜色色板`。
