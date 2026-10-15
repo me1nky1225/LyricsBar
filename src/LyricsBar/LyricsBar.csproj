@@ -17,7 +17,7 @@
     <AssemblyTitle>Lyrics Bar</AssemblyTitle>
     <Product>Lyrics Bar</Product>
     <Description>把歌词显示在 Windows 任务栏上的极简工具。Taskbar lyrics for Windows 10/11.</Description>
-    <Version>1.4.2</Version>
+    <Version>1.4.3</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- 任务栏停靠需要按物理像素定位，因此必须显式声明 DPI 感知；app.manifest 里是 PerMonitorV2。 -->
     <ApplicationIcon>LyricsBar.ico</ApplicationIcon>

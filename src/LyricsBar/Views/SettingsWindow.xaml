@@ -618,15 +618,6 @@
                                 <Border x:Name="ColorPreview" Width="30" Height="22" Margin="10,0,0,0" BorderBrush="#8C8C8C" BorderThickness="1" CornerRadius="3" />
                             </StackPanel>
                         </Grid>
-                        <Grid Margin="0,8,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="120" />
-                                <ColumnDefinition Width="*" />
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="常用颜色" Style="{StaticResource RowLabel}" />
-                            <WrapPanel x:Name="ColorPresetPanel" Grid.Column="1" Orientation="Horizontal" />
-                        </Grid>
-                        <TextBlock Style="{StaticResource CardHint}" Text="点一下常用颜色即可填入上方输入框，也可以自己填任意 #RRGGBB 或颜色名。" />
                         <CheckBox x:Name="ShadowCheck" Content="文字加对比阴影（深色壁纸下更清晰）" />
                     </StackPanel>
                 </Border>

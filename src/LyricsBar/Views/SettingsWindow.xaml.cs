@@ -22,26 +22,6 @@ public partial class SettingsWindow : Window
     /// <summary>字体下拉里代表"跟随系统"的条目。它不对应任何真实字体名，落盘时写回 null。</summary>
     private const string SystemDefaultFontLabel = "系统默认";
 
-    /// <summary>
-    /// "常用颜色"里的一键色板：名称 + `#RRGGBB`。原项目只有一个自由输入框，用户每次都要自己记得色值；
-    /// 这里给几个深色壁纸下真正吃得开的常用色，点一下即填进输入框（仍然是普通文本框，可以继续手改任意色值）。
-    /// The one-click swatches under "common colours": label plus `#RRGGBB`. The original build had only a free-text field, so
-    /// every change meant recalling a hex value; these are the colours that actually read well over a dark wallpaper. A click
-    /// fills the text box, which stays an ordinary text box and still accepts any value typed by hand.
-    /// </summary>
-    private static readonly (string Name, string Value)[] ColorPresets =
-    [
-        ("纯白", "#FFFFFF"),
-        ("米白", "#FFF6E5"),
-        ("浅金", "#FFE082"),
-        ("天蓝", "#8FD3FF"),
-        ("青绿", "#8CE8C8"),
-        ("樱粉", "#FFB3C7"),
-        ("浅灰", "#C9CDD4"),
-        ("深灰", "#6B7280"),
-        ("纯黑", "#000000"),
-    ];
-
     private readonly Action _redockRequested;
     private readonly Dictionary<string, System.Windows.Controls.CheckBox> _sourceChecks = new(StringComparer.Ordinal);
     private bool _loading;
@@ -68,7 +48,6 @@ public partial class SettingsWindow : Window
         Loaded += (_, _) => SyncFontComboEditState();
         BuildSourceList();
         BuildFontFamilyList();
-        BuildColorPresets();
         WireEvents();
         LoadFromSettings();
     }
@@ -334,65 +313,6 @@ public partial class SettingsWindow : Window
         catch (Exception)
         {
             ColorPreview.Background = Brushes.Transparent;
-        }
-    }
-
-    /// <summary>
-    /// 铺开"常用颜色"色板。每个色块是一个带模板的最小按钮：模板里只有一块圆角颜色块，
-    /// 鼠标悬停只加一圈蓝边，不参与任何"按下/禁用"状态，所以点下去看到的就是它填进去的颜色。
-    /// Lays out the common-colour swatches. Each one is a minimal templated button whose template holds a single rounded
-    /// colour block; hovering only adds a blue ring and no pressed/disabled state is involved, so what is clicked is exactly
-    /// the colour that lands in the text box.
-    /// </summary>
-    private void BuildColorPresets()
-    {
-        ColorPresetPanel.Children.Clear();
-
-        foreach (var (name, value) in ColorPresets)
-        {
-            var swatch = new Border
-            {
-                Width = 22,
-                Height = 22,
-                Margin = new Thickness(0, 0, 6, 6),
-                CornerRadius = new CornerRadius(4),
-                BorderThickness = new Thickness(1),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(0x8C, 0x8C, 0x8C)),
-                Background = new SolidColorBrush(ParsePresetColor(value))
-            };
-
-            var button = new Button
-            {
-                Content = swatch,
-                Cursor = System.Windows.Input.Cursors.Hand,
-                ToolTip = $"{name}  {value}"
-            };
-
-            // 模板里不留任何内边距：默认按钮的内容区会把 22×22 的色块挤小，颜色块就不再是正方形的色卡。
-            // The template keeps no padding: the default button content area would shrink the 22x22 block, and the swatch
-            // would stop being a square colour chip.
-            var template = new ControlTemplate(typeof(Button));
-            var content = new FrameworkElementFactory(typeof(ContentPresenter));
-            content.SetValue(HorizontalAlignmentProperty, HorizontalAlignment.Center);
-            content.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
-            template.VisualTree = content;
-            button.Template = template;
-
-            button.Click += (_, _) => ColorBox.Text = value;
-            ColorPresetPanel.Children.Add(button);
-        }
-    }
-
-    /// <summary>把 `#RRGGBB` 解析成颜色；色板是自己的常量，解析失败时退回白色而不是抛异常。</summary>
-    private static Color ParsePresetColor(string value)
-    {
-        try
-        {
-            return (Color)ColorConverter.ConvertFromString(value);
-        }
-        catch (Exception)
-        {
-            return Colors.White;
         }
     }
 

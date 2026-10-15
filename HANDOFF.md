@@ -1,7 +1,7 @@
 # LyricsBar 工作交接文档 / Handoff
 
 > 生成时间：2026-10-15
-> 当前版本：1.4.2（`src/LyricsBar/LyricsBar.csproj` `<Version>1.4.2</Version>`）
+> 当前版本：1.4.3（`src/LyricsBar/LyricsBar.csproj` `<Version>1.4.3</Version>`）
 
 ---
 
@@ -24,12 +24,20 @@
 - **宿主接入**：`TaskbarLyricsWindow` 按 `AppSettings.LyricsRendererEngine` 选择渲染器，默认原生。
 - **内存优化**：`LyricsBar.csproj` 关闭 `EnableCompressionInSingleFile`，实测空闲 **~28MB**、播放中 **~57MB**（之前压缩单文件是 112–148MB）。
 
-### 3. 「文字颜色」新增常用颜色色板（v1.4.2）
+### 3. 「文字颜色」常用颜色色板：加了又回退（v1.4.2 加，v1.4.3 已整体回退）
 
-用户要求："在文字颜色那里添加几种常用颜色"。
+**背景**：用户要求"在文字颜色那里添加几种常用颜色"。
 
-- **设置窗口**（`Views/SettingsWindow.xaml` / `.xaml.cs`）：外观区颜色输入框右侧新增 `ColorPresetPanel`，**9 个色块**——纯白 `#FFFFFF` / 米白 `#FFF6E5` / 浅金 `#FFE082` / 天蓝 `#8FD3FF` / 青绿 `#8CE8C8` / 樱粉 `#FFB3C7` / 浅灰 `#C9CDD4` / 深灰 `#6B7280` / 纯黑 `#000000`（ToolTip 带色名与色值）。点一下即写进 `ColorBox`、即时应用到歌词栏并存盘；输入框仍可自由填任意 `#RRGGBB` 或颜色名。
-- **验证**（沿用 v1.4.1 的独立探针 `tools/SettingsRoundTrip`）：真实实例化 `SettingsWindow`，对 9 个色块逐个 `Measure`/`Arrange`/渲染并**读回中心像素**，9 个色值与声明逐字节一致（所以不可能被"背景色被主题覆盖"骗过）；再对「天蓝」发一次真实 `Click`，核对 `ColorBox.Text` / `SettingsManager.Current.LyricsTextColor` / `settings.json` / `ColorPreview.Background` 四处都是 `#8FD3FF`，`RESULT: PASS`，探针结束把用户设置文件原样还原。
+**做过什么（v1.4.2）**：`Views/SettingsWindow.xaml` 外观区颜色输入框下面加一行「常用颜色」，`Views/SettingsWindow.xaml.cs` 里用 `ColorPresetPanel` 铺出 **9 个色块**——纯白 `#FFFFFF` / 米白 `#FFF6E5` / 浅金 `#FFE082` / 天蓝 `#8FD3FF` / 青绿 `#8CE8C8` / 樱粉 `#FFB3C7` / 浅灰 `#C9CDD4` / 深灰 `#6B7280` / 纯黑 `#000000`；点一下写进 `ColorBox`、即时生效并存盘。验证沿用独立探针 `tools/SettingsRoundTrip`：9 个色块逐个 `Measure`/`Arrange`/渲染并**读回中心像素**，9 个色值逐字节一致，再对「天蓝」发一次真实 `Click`，核对 `ColorBox.Text` / 内存设置 / `settings.json` / `ColorPreview.Background` 四处一致，`RESULT: PASS`。
+
+**为什么回退**：用户看过真机截图后明确要求「回退到没有添加几种常用文字颜色的版本」，不需要这组色块。
+
+**回退范围（v1.4.3）**：
+
+- `Views/SettingsWindow.xaml`：删掉「常用颜色」标签行、`ColorPresetPanel`、以及"点一下常用颜色即可填入…"的 `CardHint`。
+- `Views/SettingsWindow.xaml.cs`：删掉 `ColorPresets` 常量表、`BuildColorPresets()`、`ParsePresetColor()`、构造函数里的 `BuildColorPresets();` 调用及随之无用的 `using`。
+- `tools/SettingsRoundTrip/Program.cs`：删掉 `VerifyColorPresets()` 与 `MeasureButtonColor()`（下拉框往返那部分探针保留，仍 `RESULT: PASS`）。
+- **保留**：`ColorBox` 本身（自由填 `#RRGGBB` 或颜色名）与 `ColorPreview` 预览块，与 v1.4.1 及更早版本一致；`RenderPreview.cs` 的帧编号重排与色板无关，也保留。
 
 ### 4. 左右分离「依次亮起」的尝试与回退（v1.4.2，已回退）
 
@@ -96,20 +104,20 @@
 | `src/LyricsBar/Classes/Services/Lyrics/LyricsMatchStrictnessPolicy.cs` | 匹配严格度策略 |
 | `src/LyricsBar/Classes/Services/NeteaseQueueService.cs` | 网易云队列反查 |
 | `src/LyricsBar/RenderPreview.cs` | `--render-preview` 离屏自检（12 张图，编号 01–12 连续无重复） |
-| `tools/SettingsRoundTrip/` | 独立 net10 控制台探针：真实实例化 `SettingsWindow` 驱动下拉框与色板（见 §一.3、§三.2） |
+| `tools/SettingsRoundTrip/` | 独立 net10 控制台探针：真实实例化 `SettingsWindow` 驱动下拉框往返（见 §三.2） |
 
 ### 修改文件（核心）
 
 | 文件 | 改动 |
 |---|---|
-| `LyricsBar.csproj` | 版本 1.4.2；关闭 `EnableCompressionInSingleFile` |
+| `LyricsBar.csproj` | 版本 1.4.3；关闭 `EnableCompressionInSingleFile` |
 | `AppSettings.cs` | 新增 `LyricsRendererEngine`、`LyricsMatchStrictness` |
 | `LyricsRetrievalPolicy.cs` | 严格度阈值策略 |
 | `LyricsService.cs` | 应用严格度到取词流程 |
 | `LyricsSearch.cs` | 严格度影响最低匹配分 |
 | `LyricsCoordinator.cs` | 接入 `NeteaseQueueService` |
 | `TaskbarLyricsWindow.xaml(.cs)` | 宿主支持双渲染器切换 |
-| `SettingsWindow.xaml(.cs)` | 新增「歌词渲染」「匹配严格度」「第二行优先」三个下拉框；「文字颜色」旁新增 9 色常用颜色色板 |
+| `SettingsWindow.xaml(.cs)` | 新增「歌词渲染」「匹配严格度」「第二行优先」三个下拉框（v1.4.2 的「文字颜色」常用颜色色板已于 v1.4.3 回退，见 §一.3） |
 | `Diagnostics.cs` | 新增网易云队列诊断 |
 | `RenderPreview.cs` | 把 `08`–`13` 的编号按输出顺序重排成 01–12 连续无重复（v1.4.2；曾新增 `12-cascade-split` 帧，已随回退删除） |
 | `style.css` | 修复 `Split` 下 `.next-line.promoting` 对齐 |
@@ -148,7 +156,7 @@
 ### 2. 设置窗口新控件的实际点击测试 —— 大部分已覆盖，剩一步人工
 
 - 已做（2026-10-15 19:35，独立宿主真实实例化 `SettingsWindow` 做读写往返）：`StrictnessCombo` 改选「宽松」→ 落盘 `LyricsMatchStrictness: "Loose"`；改回「严格」→ 落盘回 `Strict`；两个下拉框实际宽度 326.0 / 189.0px 且开合前后不变，确认是真实可视控件而非空占位。
-- 已做（2026-10-15 21:40，同一个探针扩了色板用例，「常用颜色」9 个色块逐个渲染并读回中心像素，9 个色值逐字节一致；点「天蓝」后 `ColorBox.Text` / 内存设置 / `settings.json` / `ColorPreview.Background` 四处都是 `#8FD3FF`，`RESULT: PASS`）。
+- 已做（2026-10-15 21:40，同一个探针扩了色板用例，「常用颜色」9 个色块逐个渲染并读回中心像素，9 个色值逐字节一致；点「天蓝」后 `ColorBox.Text` / 内存设置 / `settings.json` / `ColorPreview.Background` 四处都是 `#8FD3FF`，`RESULT: PASS`）。**该色板用例已随 v1.4.3 的回退一起删除**，现在探针只做下拉框往返。
 - 剩一步：**真实鼠标展开下拉列表**没做 —— 本机沙箱下宿主用 `SendInput` 投递报 `ACCESS_DENIED`。人工点一次即可确认（v1.4.0 已修过"自定义 ComboBox 模板漏 ToggleButton 导致点不开"的根因）。
 
 ### 3. 发布产物的完整性 —— 已复核

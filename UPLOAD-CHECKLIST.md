@@ -6,9 +6,9 @@
 
 ## 一、归档包里有什么、没有什么
 
-**有**（共 99 个文件，约 1.17MB；不含 `docs/github-upload-manifest.csv` 自身时为 98 个文件、1,186,749 字节）：仓库的 86 个受版本控制的文件（源码、XAML、歌词前端、图标、`LICENSE`、`THIRD-PARTY-NOTICES.md`、`SOFTWARE-STATUS.md`、`RENDERER-REWRITE.md`）、本目录重写的 `.gitignore`、新增的 `.gitattributes`（统一按 LF 存取，避免自动换行转换在 diff 里刷出整文件改动）、`README.md`（英文）、`README.zh-CN.md`（中文）、`CHANGELOG.md`、`HANDOFF.md`、设置窗口自检工具 `tools/SettingsRoundTrip`，以及 `docs/settings-preview.png` 与 `docs/github-upload-manifest.csv`。完整清单（含每个文件的字节数与 SHA256）见 `docs/github-upload-manifest.csv`。构成：`src/` 84 个 = 72 个 `.cs` + 3 个 `.xaml` + 6 个歌词前端资源 + `LyricsBar.csproj` / `app.manifest` / `LyricsBar.ico`；`tools/` 2 个；`docs/` 2 个；根目录 11 个。
+**有**（共 99 个文件，1,197,938 字节；不含 `docs/github-upload-manifest.csv` 自身时为 98 个文件、1,183,442 字节）：仓库的 86 个受版本控制的文件（源码、XAML、歌词前端、图标、`LICENSE`、`THIRD-PARTY-NOTICES.md`、`SOFTWARE-STATUS.md`、`RENDERER-REWRITE.md`）、本目录重写的 `.gitignore`、新增的 `.gitattributes`（统一按 LF 存取，避免自动换行转换在 diff 里刷出整文件改动）、`README.md`（英文）、`README.zh-CN.md`（中文）、`CHANGELOG.md`、`HANDOFF.md`、设置窗口自检工具 `tools/SettingsRoundTrip`，以及 `docs/settings-preview.png` 与 `docs/github-upload-manifest.csv`。完整清单（含每个文件的字节数与 SHA256）见 `docs/github-upload-manifest.csv`。构成：`src/` 84 个 = 72 个 `.cs` + 3 个 `.xaml` + 6 个歌词前端资源 + `LyricsBar.csproj` / `app.manifest` / `LyricsBar.ico`；`tools/` 2 个；`docs/` 2 个；根目录 11 个。
 
-> **归档在本文件写下之后刷新过两次（同日）**：先是"依次亮起失效"的修复与 `--render-preview` 编号重排（13 张图改成 `01`–`12` 连续不重复），随后**「依次亮起」整体回退**（连同 `tools/CascadeProbe` 一起删除），并新增「文字颜色」的 9 色常用颜色色板。本目录已按最终状态重出：`HANDOFF.md`、`SOFTWARE-STATUS.md`、两份 README、`CHANGELOG.md`、`src/` 全树与清单都是回退**之后**的版本。文件数与字节数以本段为准；第 6 节末尾那张表记的是**首次**归档时的核对。
+> **归档在本文件写下之后刷新过三次（同日，当前版本 v1.4.3）**：① "依次亮起失效"的修复与 `--render-preview` 编号重排（13 张图改成 `01`–`12` 连续不重复）；② **「依次亮起」整体回退**（连同 `tools/CascadeProbe` 一起删除）并新增「文字颜色」的 9 色常用颜色色板；③ **色板也整体回退**（v1.4.3，`ColorPresets` / `BuildColorPresets` / `ParsePresetColor` 与探针里的色板用例全部删除，「文字颜色」回到只有一个自由输入框）。本目录已按最终状态（v1.4.3）重出：`HANDOFF.md`、`SOFTWARE-STATUS.md`、两份 README、`CHANGELOG.md`、`src/` 全树与清单都是最后一次回退**之后**的版本。文件数与字节数以本段为准；第 6 节末尾那张表记的是**首次**归档时的核对。
 
 > 归档目录里的 `README.md` 是**新写的英文版**，和原目录里那份中文 README 不是同一个文件；中文说明现在是 `README.zh-CN.md`。两者互为语言入口。
 
@@ -35,7 +35,7 @@
 ```powershell
 cd E:\PcApp\WorkBuddy\2026-10-14-20-18-19\LyricsBar
 git add -A
-git commit -m "Release v1.4.2: native renderer, text-colour palette, match strictness and NetEase queue lookup"
+git commit -m "Release v1.4.3: revert the text-colour palette, keep the preview frame renumbering"
 git remote add origin https://github.com/<你的账号>/LyricsBar.git
 git branch -M main          # 可选：GitHub 默认分支叫 main
 git push -u origin main
@@ -47,7 +47,7 @@ git push -u origin main
 cd E:\PcApp\WorkBuddy\2026-10-14-20-18-19\LyricsBar-github-upload
 git init
 git add -A
-git commit -m "LyricsBar v1.4.2: minimal taskbar lyrics for Windows, natively rendered"
+git commit -m "LyricsBar v1.4.3: minimal taskbar lyrics for Windows, natively rendered"
 git branch -M main
 git remote add origin https://github.com/<你的账号>/LyricsBar.git
 git push -u origin main
@@ -85,12 +85,15 @@ git push -u origin main
 
 ---
 
-## 五、发第一个 Release（v1.4.2）
+## 五、发 Release（当前版本 v1.4.3）
 
-1. Tag 名 `v1.4.2`，目标选 `main`。
-2. 标题：`LyricsBar v1.4.2 — 文字颜色常用色板`。
-3. 正文直接抄 `CHANGELOG.md` 里 1.4.2 那一段。
-4. 附件上传 `dist/LyricsBar.exe`（186,193,559 字节，文件版本 1.4.2.0）。
+> 线上已经发过 `v1.4.2`（标题 `LyricsBar v1.4.2 — 文字颜色常用色板`，附件 186,193,559 字节的那份 exe）。
+> v1.4.2 的色板已在 v1.4.3 回退，因此**再发一个 v1.4.3**，不要覆盖 v1.4.2 的 tag。
+
+1. Tag 名 `v1.4.3`，目标选 `main`。
+2. 标题：`LyricsBar v1.4.3 — 回退文字颜色色板`。
+3. 正文直接抄 `CHANGELOG.md` 里 1.4.3 那一段。
+4. 附件上传 `dist/LyricsBar.exe`（186,189,463 字节，文件版本 1.4.3.0）。
    GitHub 单个 Release 附件上限 2GB，178MB 没问题。
 5. **不要**把 exe 提交进仓库（`.gitignore` 已挡住 `dist/` 与 `releases/`）。
 
@@ -112,13 +115,13 @@ Select-String -Path README.md,README.zh-CN.md -Pattern 'docs/settings-preview.pn
 如果 `git status` 里冒出 `dist/`、`releases/`、`bin/`、`obj/`、`.preview/`，说明 `.gitignore` 没生效，
 先停下来查 `.gitignore` 的内容，**不要**直接 `git add -A` 提交上去。
 
-### 归档时已经替你做过的核对（2026-10-15，回退与色板落地后重跑）
+### 归档时已经替你做过的核对（2026-10-15，色板回退落地后重跑）
 
 | 核对项 | 结果 |
 |---|---|
-| 归档里的受控文件与原项目目录**逐字节一致** | 86 个受控文件逐个比 SHA256：**0 处差异**；只有 `.gitignore` 是有意改写的。另做了一次"回退残留"扫描：`src/` 全树（`.cs` / `.js` / `.html` / `.css`）已无 `Cascade` / `nextWordScanProgress` / `incomingLineScanText` 等已回退符号 |
+| 归档里的受控文件与原项目目录**逐字节一致** | 86 个受控文件逐个比 SHA256：**0 处差异**；只有 `.gitignore` 是有意改写的。另做了一次"回退残留"扫描：`src/` 全树（`.cs` / `.js` / `.html` / `.css`）已无 `Cascade` / `nextWordScanProgress` / `incomingLineScanText` / `ColorPreset` / `ParsePresetColor` 等已回退符号 |
 | `git init` + `git add -A` 试跑 | 干净暂存，索引里**没有** `dist/`、`releases/`、`.preview/`、`bin/`、`obj/`、`*.log` |
-| 目录里是否混入二进制 / 构建产物 | `dist`、`releases`、`.preview`、`.git`、`bin`、`obj`、`build.log`、`publish*.log` 全部不存在（`tools/` 下只有 `.csproj` 与 `Program.cs`，`bin`/`obj` 未复制） |
+| 目录里是否混入二进制 / 构建产物 | `dist`、`releases`、`.preview`、`bin`、`obj`、`build.log`、`publish*.log` 全部不存在（`tools/` 下只有 `.csproj` 与 `Program.cs`，`bin`/`obj` 未复制） |
 | Markdown 结构（代码块闭合、表格列数、相对链接与图片目标） | md 全部通过，`docs/settings-preview.png` 与各文档互链目标均存在 |
 | 源码规模 | 72 个 `.cs`、3 个 `.xaml`、6 个歌词前端资源文件 |
-| 自检工具可用 | `tools/SettingsRoundTrip` 读写往返通过：两个下拉框、9 个颜色色块（逐块渲染读回中心像素）、点击后输入框 / 内存设置 / `settings.json` / 预览块四处一致，`RESULT: PASS` |
+| 自检工具可用 | `tools/SettingsRoundTrip` 读写往返通过：两个下拉框（严格度 / 第二行顺序）改选后输入框 / 内存设置 / `settings.json` 三处一致，`RESULT: PASS`（色板用例已随 v1.4.3 回退删除） |
