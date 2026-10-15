@@ -17,5 +17,11 @@ releases/
 # 打包方式内存对比用的临时产物。
 .memprobe/
 
+# 发版前的 exe 备份：每个 186MB，只放在工作目录的 ../LyricsBar-dist-backup/ 里，绝不进版本库。
+LyricsBar-dist-backup/
+
 # 本地构建 / 发布日志
 *.log
+
+# AI 会话记忆（.workbuddy-ai/）：归档里的临时笔记，既不进版本库也不进清单。
+.workbuddy-ai/

@@ -91,6 +91,14 @@ internal static class RenderPreview
                 null,
                 Frame("这一行太长了放不下所以应该出现省略号而不是换行", "下一句", false, 0.5, null));
 
+            // 纯音乐 / 无歌词：可见但两行都空。这一帧是"栏必须留着"的视觉证据——它应该只剩封面（与开了的曲目信息块），
+            // 而不是整条栏淡出。
+            // Pure music / no lyrics: visible with both rows empty. This frame is the visual evidence that the bar has to stay — it
+            // should show just the artwork (and the track-info block when enabled) instead of fading out entirely.
+            RenderStatic("08-pure-music", BaseStyle with { TextAlignment = "Left" }, 300, 48,
+                null,
+                Frame(string.Empty, string.Empty, false, 0, null));
+
             // 编号按"输出顺序"排，并且必须互不重复：每个编号就是一个文件名，
             // 撞号会让后写的一张覆盖先写的一张，预览看起来会凭空少图。
             // Numbers follow the output order and must be unique: each number is one file name, and a collision makes the later
@@ -179,12 +187,12 @@ internal static class RenderPreview
             Frame("And girl, I don't know what to call it (Call)", "我不知道该叫它什么", false, 0.5, 0.35),
             animateTransition: false);
         host.UpdateLayout();
-        Save(host, 700, 48, "08-overlay-before");
+        Save(host, 700, 48, "09-overlay-before");
 
         renderer.SetOverlay(true);
         await Task.Delay(260);
         host.UpdateLayout();
-        Save(host, 700, 48, "08-overlay");
+        Save(host, 700, 48, "10-overlay");
     }
 
     /// <summary>
@@ -201,18 +209,19 @@ internal static class RenderPreview
             Frame("多少人为生命在努力勇敢的走下去", "我们是不是该知足", false, 0.9, null, lineIndex: 5),
             animateTransition: false);
         host.UpdateLayout();
-        Save(host, 700, 48, "09-roll-before");
+        Save(host, 700, 48, "11-roll-before");
 
         renderer.Present(
             Frame("我们是不是该知足", "珍惜一切就算没有拥有", false, 0.1, null, lineIndex: 6),
             animateTransition: true);
         await Task.Delay(140);
         host.UpdateLayout();
-        Save(host, 700, 48, "10-roll-mid");
+        Save(host, 700, 48, "12-roll-mid");
 
         await Task.Delay(700);
         host.UpdateLayout();
-        Save(host, 700, 48, "11-roll-after");    }
+        Save(host, 700, 48, "13-roll-after");
+    }
 
     private static void Save(Visual visual, int width, int height, string name)
     {

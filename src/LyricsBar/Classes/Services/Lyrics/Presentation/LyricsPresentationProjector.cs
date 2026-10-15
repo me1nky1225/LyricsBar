@@ -62,20 +62,31 @@ public static class LyricsPresentationProjector
         {
             // 没有歌词行。这时必须区分两种"没有"：取词还在进行中，与确认这一首就是没有歌词。
             // 后者（纯音乐、伴奏、无人声）如果什么都不显示，任务栏上就完全看不出在放什么，
-            // 所以改为显示曲名与歌手，配合封面；取词进行中则维持原样，什么都不显示。
+            // 所以改为留下封面、（开了的话）曲目信息块，或把曲名与歌手顶到歌词行上；取词进行中则维持原样，什么都不显示。
             // No lyric lines. Two different "nothing" cases have to be told apart here: a lookup still in flight, and a track
             // confirmed to have no lyrics. Showing nothing for the latter (instrumentals, backing tracks, no vocals) leaves the
-            // taskbar with no clue about what is playing, so title and artist are shown alongside the artwork instead; an
-            // in-flight lookup keeps the previous behaviour and shows nothing.
+            // taskbar with no clue about what is playing, so the artwork — and the track-info block or a promoted title/artist
+            // pair — is kept instead; an in-flight lookup keeps the previous behaviour and shows nothing.
             // 曲目信息块（LyricsTrackInfoBlockEnabled）开着时，曲名与歌手已经由那一块常驻显示，
-            // 再走这条路只会把同样的字在同一根歌词栏里再印一遍，所以直接留空。
+            // 再走这条路只会把同样的字在同一根歌词栏里再印一遍，所以不再把曲名顶到歌词行上。
             // When the track-info block (LyricsTrackInfoBlockEnabled) is on, title and artist are already shown permanently by
-            // that block, so taking this path would only print the same text a second time inside one bar; stay empty instead.
-            return settings.LyricsShowTrackInfoWhenNoLyrics
+            // that block, so taking this path would only print the same text a second time inside one bar; the title is not
+            // promoted onto a lyric row here.
+            if (settings.LyricsShowTrackInfoWhenNoLyrics
                 && snapshot.LyricsLookupCompleted
-                && !settings.LyricsTrackInfoBlockEnabled
-                ? BuildTrackInfoFrame(snapshot, settings)
-                : LyricsPresentationFrame.Hidden;
+                && !settings.LyricsTrackInfoBlockEnabled)
+            {
+                return BuildTrackInfoFrame(snapshot, settings);
+            }
+
+            // 没有歌词可唱 ≠ 没有东西可显示。封面与曲目信息块跟歌词帧无关（由 ApplyCover / ApplyTrackInfo 单独下发），
+            // 所以这里必须交出一帧"空歌词"让整条栏继续留在任务栏上；返回 Hidden 会让 SetBarVisible(false) 把窗口变全透明，
+            // 于是封面与被用户打开的那块曲目信息一起被吞掉——纯音乐在任务栏上就什么都不剩。
+            // No lyrics to sing is not the same as nothing to show. The artwork and the track-info block are independent of the
+            // lyric frame (they are pushed by ApplyCover / ApplyTrackInfo), so this has to hand back an "empty lyrics" frame and
+            // keep the bar docked. Returning Hidden makes SetBarVisible(false) fade the whole window out, swallowing the artwork
+            // and the very track-info block the user switched on — an instrumental then shows nothing at all.
+            return BuildEmptyFrame(snapshot);
         }
 
         var position = TaskbarExperiencePolicy.GetPosition(snapshot, now);
@@ -205,8 +216,36 @@ public static class LyricsPresentationProjector
     /// risk. Title and artist are just "a line of text", so the existing path is both the least work and the safest. Progress and
     /// syllable scan are zeroed so the main row is not treated as "currently being sung" and animated.
     /// </summary>
-    private static LyricsPresentationFrame BuildTrackInfoFrame(MediaSnapshot snapshot, AppSettings settings)
-    {
+    /// <summary>
+    /// 构造"这一首确认没有歌词、但栏要留着"的帧：可见，歌词两行都是空串。
+    ///
+    /// 交给它一帧空歌词而不是让它返回 <see cref="LyricsPresentationFrame.Hidden"/>，是因为"隐藏"在这条链路上意味着
+    /// 整条歌词栏淡出（<c>TaskbarLyricsWindow.SetBarVisible(false)</c>）。封面与曲目信息块虽然与歌词帧无关、
+    /// 各自单独下发，却都画在这条栏里，栏一淡出它们就一起消失了。空行不会占宽度：自动宽度量到 0，
+    /// 剩下的只有封面与曲目信息块本身的宽度。
+    /// Builds the frame for "this track is confirmed to have no lyrics, but the bar stays": visible, with both lyric rows empty.
+    ///
+    /// It hands back an empty lyric frame rather than <see cref="LyricsPresentationFrame.Hidden"/> because on this path "hidden"
+    /// means the whole bar fades out (<c>TaskbarLyricsWindow.SetBarVisible(false)</c>). The artwork and the track-info block are
+    /// independent of the lyric frame and are pushed separately, but both are drawn inside that bar, so fading it out takes them
+    /// with it. Empty rows take no width: the automatic width measures 0 and what remains is the artwork and the track-info
+    /// block's own width.
+    /// </summary>
+    /// <param name="snapshot">媒体快照 / The media snapshot.</param>
+    private static LyricsPresentationFrame BuildEmptyFrame(MediaSnapshot snapshot) => new(
+        true,
+        BuildTrackId(snapshot),
+        -1,
+        string.Empty,
+        string.Empty,
+        string.Empty,
+        string.Empty,
+        false,
+        0,
+        null,
+        snapshot.IsPlaying);
+
+    private static LyricsPresentationFrame BuildTrackInfoFrame(MediaSnapshot snapshot, AppSettings settings)    {
         var title = snapshot.Title?.Trim() ?? string.Empty;
         if (title.Length == 0)
         {

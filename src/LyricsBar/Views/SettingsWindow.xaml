@@ -448,7 +448,9 @@
                         <CheckBox x:Name="SyllableCheck" Content="逐字擦亮（需要歌词本身带逐字时间轴）" />
                         <CheckBox x:Name="CoverCheck" Content="显示歌曲封面（左侧，来自播放器；无封面时显示首字母色块）" />
                         <CheckBox x:Name="ProgressCheck" Content="显示底部播放进度条" />
-                        <CheckBox x:Name="NoLyricsInfoCheck" Content="纯音乐 / 无歌词时显示曲名与歌手（配合封面）" />
+                        <CheckBox x:Name="NoLyricsInfoCheck" Content="纯音乐 / 无歌词时把曲名与歌手顶到歌词行（配合封面）" />
+                        <TextBlock Style="{StaticResource CardHint}"
+                                   Text="纯音乐、伴奏这类没有歌词的曲目：勾选时曲名与歌手占歌词行的位置；取消勾选只是不再占用歌词行，整条栏仍然保留，只剩封面（开了曲目信息块时还有那一块）。" />
 
                         <Grid Margin="0,8,0,0">
                             <Grid.ColumnDefinitions>

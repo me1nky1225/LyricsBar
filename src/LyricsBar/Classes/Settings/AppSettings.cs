@@ -273,10 +273,13 @@ public sealed class AppSettings
     public double TaskbarOffsetDip { get; set; } = 0;
 
     /// <summary>
-    /// 这一首确认没有歌词时，是否显示曲名与歌手（配合封面）。纯音乐、伴奏、无人声曲目都走这条路。
-    /// 关掉它就回到"没有歌词就什么都不显示"的老行为。
-    /// Whether to show the title and artist (alongside the artwork) when a track is confirmed to have no lyrics. Instrumentals,
-    /// backing tracks, and vocal-free pieces all take this path. Turning it off restores the old "show nothing without lyrics".
+    /// 这一首确认没有歌词时，是否把曲名与歌手顶到歌词行上（配合封面）。纯音乐、伴奏、无人声曲目都走这条路。
+    /// 关掉它只是不再占用歌词行——整条栏仍然留着，只剩封面（开了曲目信息块时还有那一块）；
+    /// 无论如何都不会再把栏整个隐掉，否则封面与曲目信息块会被一起淡出，任务栏上什么都看不见。
+    /// Whether to promote the title and artist onto a lyric row (alongside the artwork) when a track is confirmed to have no
+    /// lyrics. Instrumentals, backing tracks, and vocal-free pieces all take this path. Turning it off only stops using the lyric
+    /// row — the bar stays and shows just the artwork (plus the track-info block when enabled); the bar is never hidden here, which
+    /// would fade the artwork and the track-info block out with it and leave nothing on the taskbar.
     /// </summary>
     public bool LyricsShowTrackInfoWhenNoLyrics { get; set; } = true;
 

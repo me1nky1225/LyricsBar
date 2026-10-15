@@ -2,15 +2,13 @@
 # release version: 1.4.3 | repository files generated: 2026-10-15 | source root: LyricsBar
 # columns: path,bytes,modified,sha256,note
 .gitattributes,224,2026-10-15 20:18,1f9623e178fe3a04a79facf233226efc303794d4d144e1853cd0bec2b81b9fba,line-ending normalisation (store LF)
-.gitignore,473,2026-10-15 21:30,618e8f2df27040ec4b898efed42fd4be7df35eb292e8af4190f21da2fd3b8ba0,excludes dist/ releases/ .preview/ bin/ obj/ *.log
-CHANGELOG.md,6268,2026-10-15 21:29,b823d7fe03731285fb9dd5ce150e6e8507ee246274bcb9172c2c097b52591bb9,version history
+.gitignore,739,2026-10-15 22:02,740be10a71f10ace47fe8af9466f915d5798dd7ba9e2fce15794e82884a92db4,excludes dist/ releases/ .preview/ bin/ obj/ *.log
+CHANGELOG.md,7745,2026-10-15 21:59,60609660e190d8fcbe533350107e6761413756745d59d97b36511df3ef83c854,version history
+docs/_mdcheck.js,2267,2026-10-15 21:09,5c0a55ee56811f7070c659fbd2142fd6fcc7e619b4e3a26073c59e657cbe3be1,maintainer tool: markdown lint used on these docs
 docs/settings-preview.png,88246,2026-10-15 14:42,ff34f45cbc0a7d516c93c9c027928d3f700c25caead454618e238a0602d4ad5c,settings window screenshot, referenced by both READMEs
-HANDOFF.md,15455,2026-10-15 21:09,51c29399284fdcadf6b0d64add05c40e1cb827635f1697bad1a2e9afd536a0d8,session handoff notes (Chinese)
 LICENSE,1065,2026-10-14 20:49,5597ee0ea2fb4e6e739e596222ead49076ba093f60a944737e0a89a07a527238,MIT
-README.md,20980,2026-10-15 21:28,49beb99b57af0f80e783b201709b52397ed8035fbbb60ee9f6678969324791e2,English README (GitHub landing page)
-README.zh-CN.md,20980,2026-10-15 21:28,49beb99b57af0f80e783b201709b52397ed8035fbbb60ee9f6678969324791e2,Chinese README
-RENDERER-REWRITE.md,25980,2026-10-15 18:37,d515c62c6e0530038790040e6e1e49940def1e7c82e372cc1a5383efacaf61fc,WebView2 to native renderer rewrite notes
-SOFTWARE-STATUS.md,50915,2026-10-15 21:28,9b588ecdec552fedd30ee6f9f583eb54017ed23ce308dad5dac2b58d16a8092a,current status, limits, verification log (Chinese)
+README.md,21232,2026-10-15 22:04,a930a0b3ffb3d92ccc209f0ce49cefd4d6b0196cf615f7f4092e665f699f6115,Chinese README (the only README in this archive)
+README.zh-CN.md,21232,2026-10-15 22:04,a930a0b3ffb3d92ccc209f0ce49cefd4d6b0196cf615f7f4092e665f699f6115,Chinese README (byte-identical to README.md)
 src/LyricsBar/app.manifest,1408,2026-10-14 20:32,a04c4760834fb5e050137b29e3adf7a713a6230ffa73c462305910ba013414f5,
 src/LyricsBar/App.xaml,727,2026-10-14 20:38,d80b00d24cdced7f596a2f1fb8bb95e2434f41b3fd3b0e25ebea2ac262943987,
 src/LyricsBar/App.xaml.cs,9416,2026-10-15 18:35,c0f08be84545bce94896eb14d23dee0d04d90c4857f7df66bdb0b643dcb52db9,
@@ -42,12 +40,12 @@ src/LyricsBar/Classes/Services/Lyrics/Parsing/LyricTimingPolicy.cs,6562,2026-10-
 src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricHighlightPolicy.cs,5283,2026-10-14 20:29,6f29465ee0f5d153c01ac79ea8ba4cfa6de5bbd5f6f5a75cc773b326ca2e05d5,
 src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricInfoLinePolicy.cs,2610,2026-10-14 20:29,152d20e7011b25a385d89069b4c048edc516afaa0045dbf5872fa3843e0c5fe0,
 src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricLineIndexPolicy.cs,1464,2026-10-14 20:29,d3341162ac8ace0ecf6d176f55b0e2e3e81596545be6dd86d1650a3153c66735,
-src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricPlaceholderPolicy.cs,4146,2026-10-14 20:29,d69373e772f26aad58e7a0e77ef5886d14160fe2324f3c2c68c97e662ccdeca6,
+src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricPlaceholderPolicy.cs,5686,2026-10-15 21:53,046c64a1b5e61a22215a30cfbc2ffb76034aa27561183e8875fc4f469c37df50,
 src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricsChineseConversionCache.cs,2732,2026-10-14 20:29,3555f5892651627698a9db4cca55fbaa8e2fe658593e76b0c0ddced293a26d7d,
 src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricsChineseConverter.cs,5402,2026-10-14 20:29,6ef76e1c83cd157be0ca62127198ae151bcd34dca06ac68cc1619307ef7e383f,
 src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricsDurationPolicy.cs,3094,2026-10-15 15:44,42e73936f0324b56d028c2c3cd4adb95d260628c970d7a787ea0c14c0153b1ed,
 src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricsNativeRenderer.cs,75214,2026-10-15 21:01,cd14426f4693a7bbce412b5e7c0cc3bb98a85429fb940b5191edc371467721aa,
-src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricsPresentationProjector.cs,13889,2026-10-15 21:00,0f19a03f44347e46db713819db7432f881184443cff815a441e27a61e211eab7,
+src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricsPresentationProjector.cs,16732,2026-10-15 21:52,20cdd04784e20be616db9f98071fc10565b550d5062a0f6692efde69e9abab48,
 src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricsSecondaryLinePolicy.cs,6171,2026-10-15 15:11,3449561a19d498f132b433a457fe396841b6985de88b0c6452c9c8e48c69d06d,
 src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricsWebViewLifetimePolicy.cs,2292,2026-10-14 20:29,6c41a9215b9c6d80c9389d5a603fb7d678c466df5cda3f08c31115c9569cc643,
 src/LyricsBar/Classes/Services/Lyrics/Presentation/LyricsWebViewRenderer.cs,23877,2026-10-15 21:01,6e815131412030aeda0352e8ba1a6594e8d28ae49d466c0608f2374bc0970e37,
@@ -74,18 +72,18 @@ src/LyricsBar/Classes/Services/TaskbarDockService.cs,10791,2026-10-14 20:37,521a
 src/LyricsBar/Classes/Services/TaskbarExperiencePolicy.cs,2624,2026-10-14 21:01,7b12a11e5b2d02ce0d5dce3496e7c9d7317a2bed2864778e0bea26a93fb06bc5,
 src/LyricsBar/Classes/Services/TrayIconService.cs,9718,2026-10-15 11:50,04cf29ac47a9e735991f7d4ceffcc7144b3a7e5d3625cc05c86a3742abee87c5,
 src/LyricsBar/Classes/Services/WorkingSetTrimmer.cs,4642,2026-10-15 14:29,465c7a768c5c2b030b6117698cf476289e0f4ff6d49070dca34085392cea1308,
-src/LyricsBar/Classes/Settings/AppSettings.cs,24099,2026-10-15 19:05,1e7ad132af3bdb3fe98967590d356ff8fd8da9210233b395077999b700e37092,
+src/LyricsBar/Classes/Settings/AppSettings.cs,24546,2026-10-15 21:55,87a039531d587f74a6c15cd613e7cfdef90ee5d13160181c97298b797c97b145,
 src/LyricsBar/Classes/Settings/LyricsSettings.cs,12411,2026-10-14 20:29,010a3a66be684ee1566dca692232b89fd8d20e058e4d12cd0f42009af22d5d3d,
 src/LyricsBar/Classes/Settings/LyricsSourceSettings.cs,2778,2026-10-14 20:31,59e1db180a683cd021e7755dda2c2737bf120dc5146919750f3a537436a1805c,
 src/LyricsBar/Classes/Settings/SettingsManager.cs,6662,2026-10-14 21:41,2f5d6fcbb63082e981984224cc04149c664c5d49d607fc2a61120c652d38c160,
 src/LyricsBar/Classes/Utils/Log.cs,1124,2026-10-14 20:31,7f77cd7274fcb8f4a7fd8293ad5989a4bfa6000daeb781ab805a17b01abf1b29,
 src/LyricsBar/Classes/Utils/LruCache.cs,9487,2026-10-14 20:29,b20495d1a5dbf31be6d5a9c1854c9c402662245c371f37e0514281f0abac9677,
 src/LyricsBar/Diagnostics.cs,16841,2026-10-15 19:14,cea0e163d2fdfde95f970856c7e5e571cf716b88cc2828a1dd074d94b9273e30,
-src/LyricsBar/LyricsBar.csproj,7644,2026-10-15 21:28,a6f34eceddd4728a9b263b15fab466ac3de51f5608fd7822cf5a40c6b0baec69,
+src/LyricsBar/LyricsBar.csproj,7644,2026-10-15 21:55,a6f34eceddd4728a9b263b15fab466ac3de51f5608fd7822cf5a40c6b0baec69,
 src/LyricsBar/LyricsBar.ico,96537,2026-10-15 11:46,d523799f81360d1ba42748f3efaf8a94b9cc72a0f9d0ce9109c0d13cee37b95e,
-src/LyricsBar/RenderPreview.cs,10041,2026-10-15 21:03,dac9091016f32b204674000b098ebb2ecf517125cb35d73428993d90e761378b,
+src/LyricsBar/RenderPreview.cs,10692,2026-10-15 21:54,1728ac64411229302aa99f01a40bc2091ed21ec66beeead74843c92dc90f64c2,
 src/LyricsBar/Resources/Translations.cs,1618,2026-10-14 20:31,1f1635fada78b8b2685b29b67d7543456cc14c62b6d9a6c23acc70866d020564,
-src/LyricsBar/Views/SettingsWindow.xaml,45624,2026-10-15 21:26,f3b731dbc88b2c4de0a84585cca146c307a7ad7ff294ce2901dad6243657189a,
+src/LyricsBar/Views/SettingsWindow.xaml,45973,2026-10-15 21:55,39b551e44dd3b332ec664e39cb65ae27920db0014dbb27e11b728d12331c152d,
 src/LyricsBar/Views/SettingsWindow.xaml.cs,22035,2026-10-15 21:26,9b136251df0e613d22885e0aed3b51a8e66a334c6a9855ceba4ec4a54a1c7234,
 src/LyricsBar/Views/TaskbarLyricsWindow.xaml,12812,2026-10-15 17:49,d3c358fc03f59ef21f998e9549abce3c2ca34b37d848fa8588e17e4de6db9b73,
 src/LyricsBar/Views/TaskbarLyricsWindow.xaml.cs,82047,2026-10-15 17:50,9ee280848be766522332f8a174f4a440602cc357f3119799a78daf8d1a99e09e,
@@ -96,6 +94,8 @@ src/LyricsBar/Web/Lyrics/spacing.js,4049,2026-10-14 20:28,97559f860fd2f0e12c791e
 src/LyricsBar/Web/Lyrics/state.js,538,2026-10-14 20:28,4f47692dc034d61cafa3e3b1349635146898859a760cd021e2b06cdacf1f6e25,
 src/LyricsBar/Web/Lyrics/style.css,23961,2026-10-15 21:02,c452d30f9ba96c17375ed4d3fee535bace713153e8c8bd192bf96b79ba29e3cd,
 THIRD-PARTY-NOTICES.md,2218,2026-10-15 18:04,b548a8d49e595cada120dfaa7d3f4d9eaf8f161924110dc39a748aafc067b460,dependency and source-lineage notices
-tools/SettingsRoundTrip/Program.cs,6189,2026-10-15 19:25,702ad46a04c1ab8f46f3be4c7ea2fcf1e2e3dfa55ce680d91b6e51f1eb1e0cad,real SettingsWindow read/write round-trip harness
+tools/PureMusicProbe/Program.cs,7481,2026-10-15 21:55,118782bbb11e11487434bfc21cebc0a1ed54d2078d32818fd28e4fc0073b0b3f,pure-music / no-lyrics presentation probe
+tools/PureMusicProbe/PureMusicProbe.csproj,572,2026-10-15 21:51,bfc15eb8ad7801468a57202b37ab83a8e6dc50100263be66aca62feb85521520,pure-music / no-lyrics presentation probe
+tools/regen-upload-manifest.ps1,3608,2026-10-15 22:04,d2d24dc2cdc29221cbc263068449362b25d857d449d24e135dc89058731501ad,regenerates this manifest
+tools/SettingsRoundTrip/Program.cs,6189,2026-10-15 22:03,702ad46a04c1ab8f46f3be4c7ea2fcf1e2e3dfa55ce680d91b6e51f1eb1e0cad,real SettingsWindow read/write round-trip harness
 tools/SettingsRoundTrip/SettingsRoundTrip.csproj,738,2026-10-15 19:24,3e2211bf2f150373a995dd54dc8e15e69f4b858ce6dc6cd2c4dc20d84aac7048,real SettingsWindow read/write round-trip harness
-UPLOAD-CHECKLIST.md,7801,2026-10-15 21:09,289f8ffc5a86a02cbbec08c1f324acf0577b6ad299cf18c7f0428d44e0478b39,maintainer checklist (safe to omit from the repo)
