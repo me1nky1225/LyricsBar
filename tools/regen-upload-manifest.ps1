@@ -27,6 +27,8 @@ $notes = @{
     'tools/MatchProbe/Program.cs'             = 'NetEase queue namesake / artist verification probe'
     'tools/SettingsRoundTrip/SettingsRoundTrip.csproj' = 'real SettingsWindow read/write round-trip harness'
     'tools/SettingsRoundTrip/Program.cs'      = 'real SettingsWindow read/write round-trip harness'
+    'tools/PositionProbe/PositionProbe.csproj' = 'playback-position arbitration probe (collapse / seek / track change)'
+    'tools/PositionProbe/Program.cs'          = 'playback-position arbitration probe (collapse / seek / track change)'
     'tools/regen-upload-manifest.ps1'         = 'regenerates this manifest'
 }
 
@@ -39,7 +41,7 @@ $excluded = @(
 
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add('# LyricsBar - GitHub upload manifest (repository files)')
-$lines.Add('# release version: 1.4.4 | repository files generated: 2026-10-15 | source root: LyricsBar')
+$lines.Add('# release version: 1.4.5 | repository files generated: 2026-10-16 | source root: LyricsBar')
 $lines.Add('# columns: path,bytes,modified,sha256,note')
 
 $total = 0

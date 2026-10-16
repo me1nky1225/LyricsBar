@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    位置仲裁自检。它只引用主工程，不引用 WPF 界面，因此能在无窗口环境里跑：
+    逐条验证 PositionArbitrationPolicy 在"内存与上报值一致 / 不一致 / 塌回开头 / 真 seek / 换歌"下的选择。
+    Position-arbitration self-check. It references the main project only (no WPF surface), so it runs headless: it walks
+    PositionArbitrationPolicy through the agree / disagree / collapse / real-seek / track-change cases one by one.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>PositionProbe</AssemblyName>
+    <RootNamespace>PositionProbe</RootNamespace>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\LyricsBar\LyricsBar.csproj" />
+  </ItemGroup>
+
+</Project>

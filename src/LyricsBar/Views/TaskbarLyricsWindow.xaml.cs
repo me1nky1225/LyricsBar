@@ -152,6 +152,12 @@ public partial class TaskbarLyricsWindow : Window
     private double _appliedWidthDip = -1;
     private bool _appliedVisible;
 
+    /// <summary>已经记过日志的曲目标识，用来判断"换歌了，第一行也要记"。</summary>
+    private string _lastLoggedTrackKey = string.Empty;
+
+    /// <summary>已经记过日志的歌词行下标。诊断"歌词不跟手"时，这条日志给出每次换行的时刻与实际播放位置。</summary>
+    private int _lastLoggedLineIndex = int.MinValue;
+
     /// <summary>已经推给 Web 端的封面 data URI，用来避免每帧重复推送同一张封面。</summary>
     private string _appliedCoverUri = string.Empty;
 
@@ -720,6 +726,8 @@ public partial class TaskbarLyricsWindow : Window
                 : "歌词栏隐藏（没有可呈现的歌词行）。");
         }
 
+        LogLineChange();
+
         // 每帧都走一次：渲染器就绪前这个方法会拒绝把窗口变透明，就绪之后才真正生效，
         // 因此必须持续调用，而不是只在 canPresent 跳变时调用。
         SetBarVisible(canPresent);
@@ -730,6 +738,36 @@ public partial class TaskbarLyricsWindow : Window
             ApplyGeometry();
             UpdateProgress();
         }
+    }
+
+    /// <summary>
+    /// 每换一行歌词记一条日志（换歌后的第一行也记）。只记"行下标变化"这一种事件：诊断"歌词不跟手"时，
+    /// 需要把每次换行的时刻与实际播放位置对上，而位置通道之间的切换由 <see cref="SmtcMediaReader"/> 那边记。
+    /// 这里打印的是投影时真正用来选行的那个位置（含外推），所以两边的日志可以直接对照。
+    /// Logs one line per lyric line change (including the first line of a new track). Only the index change is logged: diagnosing
+    /// "the lyrics do not follow" needs each line switch next to the real playback position, while the position-channel
+    /// switches are logged by <see cref="SmtcMediaReader"/>. The position printed here is the very one the projector used to
+    /// pick the line (extrapolation included), so the two logs line up.
+    /// </summary>
+    private void LogLineChange()
+    {
+        var snapshot = _coordinator.Latest;
+        var trackKey = string.Join('\u001f', snapshot.SourceId, snapshot.Title, snapshot.Artist);
+
+        if (!string.Equals(trackKey, _lastLoggedTrackKey, StringComparison.Ordinal))
+        {
+            _lastLoggedTrackKey = trackKey;
+            _lastLoggedLineIndex = int.MinValue;
+        }
+
+        var index = _frame.CurrentLineIndex;
+        if (index < 0 || index == _lastLoggedLineIndex)
+            return;
+
+        _lastLoggedLineIndex = index;
+        var position = TaskbarExperiencePolicy.GetPosition(snapshot, DateTimeOffset.UtcNow);
+        var text = _frame.Current.Length > 40 ? string.Concat(_frame.Current.AsSpan(0, 40), "…") : _frame.Current;
+        Log.Info("Lyrics", $"行切换: 第 {index + 1} 行「{text}」（播放位置 {position:0.##} 秒，来源 {snapshot.SourceName}）");
     }
 
     /// <summary>

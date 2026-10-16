@@ -245,7 +245,8 @@ public static class LyricsPresentationProjector
         null,
         snapshot.IsPlaying);
 
-    private static LyricsPresentationFrame BuildTrackInfoFrame(MediaSnapshot snapshot, AppSettings settings)    {
+    private static LyricsPresentationFrame BuildTrackInfoFrame(MediaSnapshot snapshot, AppSettings settings)
+    {
         var title = snapshot.Title?.Trim() ?? string.Empty;
         if (title.Length == 0)
         {

@@ -44,22 +44,35 @@ public sealed class SmtcMediaReader : IDisposable
     private CancellationTokenSource? _loopCancellation;
 
     /// <summary>
-    /// 本地计时器：播放器完全不上报时间轴时用它顶替播放位置。
-    /// 实测（2026-10-14）网易云音乐的 SMTC 时间轴全是零——Start/End/Position/MinSeek/MaxSeek 均为 0，
-    /// LastUpdatedTime 是 1601-01-01（WinRT 的零值）。上游项目为此专门做了网易云的内存通道；
-    /// 精简版不逆向那个私有通道，改用本地计时兜底：换歌归零、播放中累加、暂停时冻结。
-    /// 代价是"程序启动时歌已经在播"或"用户拖动进度条"这两种情况会对不上，
-    /// 但相比"整条时间轴为零导致歌词永远不显示"，这是能接受且明确记录在案的取舍。
-    /// A local stopwatch standing in for playback position when the player reports no timeline at all.
-    /// Measured 2026-10-14: NetEase Cloud Music's SMTC timeline is entirely zero — Start/End/Position/MinSeek/MaxSeek are all 0
-    /// and LastUpdatedTime is 1601-01-01 (the WinRT zero value). The upstream project built a private in-memory channel for
-    /// NetEase to work around this; the trimmed build does not reverse-engineer that channel and uses a local clock instead:
-    /// zeroed on track change, accumulated while playing, frozen while paused. The cost is that "the app started mid-song" and
-    /// "the user dragged the seek bar" will be out of sync, which is an accepted and documented trade-off against the
-    /// alternative of a permanently blank lyric bar.
+    /// 本地计时：既在"播放器完全不上报时间轴"时顶替播放位置，也在仲裁时充当第二个参照
+    /// （见 <see cref="PositionArbitrationPolicy"/>）—— 播放器报了个塌回开头的假值时，靠它顶住。
+    /// 实测（2026-10-15/16）网易云音乐的 SMTC 时间轴**并不是恒零**，而是会周期性塌回 0–1.5 秒：
+    /// 同一时刻内存通道读到 288.2 秒，上报值却在 0.4 / 3.4 / 49.2 / 33.5 之间乱跳。
+    /// 计时器换歌归零、播放中累加、暂停时冻结；它的基准点由 <see cref="_localClockBaselineSeconds"/> 挂在最近采信过的真实位置上。
+    /// A local clock that both stands in when the player reports no timeline at all and serves as the second reference during
+    /// arbitration (see PositionArbitrationPolicy): when the player reports a collapse-to-the-start value, this is what holds the
+    /// line. Measured 2026-10-15/16: NetEase's SMTC timeline is **not** permanently zero — it periodically collapses back to
+    /// 0–1.5 s, while at the same instant the memory channel read 288.2 s and the reported value bounced between
+    /// 0.4 / 3.4 / 49.2 / 33.5. The clock zeroes on a track change, accumulates while playing, freezes while paused, and its
+    /// baseline is pinned to the last trusted real position through _localClockBaselineSeconds.
     /// </summary>
     private readonly Stopwatch _fallbackClock = new();
     private string _fallbackTrackKey = string.Empty;
+
+    /// <summary>
+    /// 本地计时的基准秒数：最近一次采信的真实位置减去当时的计时读数。没有它，"程序启动时歌已经在播"和"用户拖过进度条"
+    /// 这两种场景下的本地计时会与真实位置相差一大截，一旦被仲裁用来顶替就会把歌词拉回第一行。
+    /// The local clock's baseline in seconds: the last trusted real position minus the clock reading at that moment. Without it,
+    /// the clock drifts far from the real position whenever the app started mid-song or the user dragged the seek bar, and the
+    /// moment arbitration falls back to it the lyrics would be yanked back to the first line.
+    /// </summary>
+    private double _localClockBaselineSeconds;
+
+    /// <summary>位置仲裁：上一拍的值、塌回开头的候选等状态都在它里面；本类只负责把三条通道读出来交给它。</summary>
+    private readonly PositionArbitrationPolicy _positionArbitration = new();
+
+    /// <summary>上一拍最终采用的位置来源，只用于"来源切换时打一条日志"。</summary>
+    private PositionSource _lastPositionSource = PositionSource.None;
 
     /// <summary>
     /// 本地计时的附加偏移（秒）。只对"播放器不上报时间轴"的场景有意义：用户在音乐软件里拖动进度条时，
@@ -370,13 +383,15 @@ public sealed class SmtcMediaReader : IDisposable
     }
 
     /// <summary>
-    /// 决定这一次要发布的位置、时长与时间轴基准时刻。播放器报了可用位置就采信；报的全是零（网易云音乐）或位置
-    /// 卡住不动，就换成本地计时，并返回 <see cref="DateTimeOffset.UtcNow"/> 作为外推基准——本地计时已经算到此刻，
-    /// 再让上层按这个基准外推就会重复累加。
-    /// Decides the position, duration, and timeline reference instant to publish. A usable reported position is trusted; an
-    /// all-zero timeline (NetEase Cloud Music) or a frozen one falls back to the local clock, and
-    /// <see cref="DateTimeOffset.UtcNow"/> is returned as the extrapolation reference because the clock is already current
-    /// and letting the caller extrapolate from an older instant would double-count.
+    /// 决定这一次要发布的位置、时长与时间轴基准时刻：把三条通道（播放器上报、网易云进程内存、本地计时）交给
+    /// <see cref="PositionArbitrationPolicy"/> 仲裁，并按它的选择返回对应的外推基准。
+    /// 本地计时的基准时刻返回 <see cref="DateTimeOffset.UtcNow"/>（它已经算到此刻，再让上层外推就会重复累加）；
+    /// 内存通道返回采样时刻；播放器上报则用它自己的 <c>LastUpdatedTime</c>。
+    /// Decides the position, duration, and timeline reference instant to publish: the three channels (the player's reported
+    /// timeline, NetEase's process memory, the local clock) go to <see cref="PositionArbitrationPolicy"/> and the reference
+    /// follows its choice. The local clock returns <see cref="DateTimeOffset.UtcNow"/> as the reference (it is already current
+    /// and letting the caller extrapolate would double-count), the memory channel returns its sampling instant, and a reported
+    /// timeline returns its own <c>LastUpdatedTime</c>.
     /// </summary>
     private (double Position, double Duration, DateTimeOffset TimelineUpdatedAt) ResolvePosition(
         string sourceId,
@@ -405,28 +420,23 @@ public sealed class SmtcMediaReader : IDisposable
         var reportedAdvanced = double.IsNaN(_lastReportedPosition) ||
                                Math.Abs(reportedPosition - _lastReportedPosition) >= 0.01;
 
-        // 位置一次性跳变超过 3 秒，只可能是用户拖了进度条（或播放器自己跳了）。这里只记录、不做特殊处理：
-        // 位置是整段采纳的，跳变下一秒就会反映到歌词行上。日志用于区分"歌词不跟手"到底是没检测到还是没呈现。
-        // A one-off jump of more than three seconds can only mean the user dragged the seek bar (or the player jumped). Nothing
-        // special happens here beyond logging: the position is adopted wholesale, so the next poll already picks the right
-        // lyric line. The log exists to tell "lyrics did not follow" apart from a detection failure.
+        // 位置一次性跳变超过 3 秒，只可能是用户拖了进度条（或播放器自己跳了）。这一行打印的是**播放器上报的原始值**，
+        // 采纳与否由下面的仲裁决定 —— 排查时先看这一行知道"播放器报了什么"，再看下面几行知道"最终用了谁"。
+        // A one-off jump of more than three seconds can only mean the user dragged the seek bar (or the player jumped). This line
+        // prints the **raw reported value**; whether it is adopted is the arbiter's call below. Read this line to learn what the
+        // player claimed and the following ones to learn which channel actually won.
         if (!double.IsNaN(_lastReportedPosition) &&
             Math.Abs(reportedPosition - _lastReportedPosition) > 3)
-            Log.Info("Media", $"检测到播放位置跳变: {_lastReportedPosition:0.#} 秒 → {reportedPosition:0.#} 秒，歌词行已跟随新位置。");
+            Log.Info("Media", $"播放器上报的位置跳变: {_lastReportedPosition:0.#} 秒 → {reportedPosition:0.#} 秒（原始值，采纳结果见后续日志）。");
 
         _lastReportedPosition = reportedPosition;
         _stalledPolls = isPlaying && !reportedAdvanced && reportedPosition > 0 ? _stalledPolls + 1 : 0;
 
-        var trustReported = reportedPosition > 0 && _stalledPolls < StalledPollThreshold;
-        PlayerReportsTimeline = trustReported;
-        if (trustReported)
-        {
-            // 播放器报的位置可用：本地计时不参与，保持停摆状态即可。
-            _fallbackClock.Stop();
-            var reference = IsUsableTimestamp(reportedUpdatedAt) ? reportedUpdatedAt : DateTimeOffset.UtcNow;
-            return (reportedPosition, reportedDuration, reference);
-        }
-
+        // 本地计时始终跟着播放状态跑：它既是最后的兜底，也是仲裁时判断"播放器报的值是否离谱"的第二个参照。
+        // 采信上报值或内存值时也让它继续跑，这样内存通道一旦读不到（换版本、进程重启），下一拍就能直接接回去。
+        // The local clock always follows the playback state: it is both the last fallback and the second reference the arbiter
+        // uses to judge whether the reported value is absurd. It keeps running even while a reported or memory value is adopted,
+        // so that if the memory channel goes away (a new version, a restarted process) the next poll can take over.
         if (isPlaying)
         {
             if (!_fallbackClock.IsRunning)
@@ -437,25 +447,55 @@ public sealed class SmtcMediaReader : IDisposable
             _fallbackClock.Stop();
         }
 
-        // 网易云的时间轴恒为零，但它的播放位置在进程内存里读得到（见 NeteasePositionService）：采信它，拖进度条才会跟着走。
-        // 本地计时故意继续跑着——内存通道一旦读不到（换版本、进程重启），下一拍就能直接接回去，而不是从头开始数。
-        // NetEase's timeline is permanently zero, yet its playback position is readable from process memory (see
-        // NeteasePositionService). Trusting it is what makes seeking follow. The local clock is deliberately left running: if
-        // the memory channel goes away (a new version, a restarted process) the next poll can take over again instead of
-        // counting from zero.
-        if (NeteasePosition is not null &&
-            NeteasePosition.TryGetPosition(sourceId, out var memoryPosition, out var memorySampledAt))
+        var hasMemory = false;
+        var memoryPosition = 0d;
+        var memorySampledAt = DateTimeOffset.UtcNow;
+        if (NeteasePosition is not null)
+            hasMemory = NeteasePosition.TryGetPosition(sourceId, out memoryPosition, out memorySampledAt);
+
+        var localClockPosition = Math.Max(
+            0,
+            _fallbackClock.Elapsed.TotalSeconds + _localClockBaselineSeconds + _localClockOffsetSeconds);
+
+        var decision = _positionArbitration.Decide(
+            trackKey,
+            new PositionObservation(
+                PlayerReports: reportedPosition > 0 && _stalledPolls < StalledPollThreshold,
+                PlayerPosition: reportedPosition,
+                HasMemory: hasMemory,
+                MemoryPosition: memoryPosition,
+                LocalClockPosition: localClockPosition,
+                IsPlaying: isPlaying));
+
+        LogPositionDecision(decision, reportedPosition, memoryPosition);
+
+        // 把本地计时的基准挂到刚刚采信的真实位置上：这样它下一次顶替（例如播放器报了个塌回开头的假值）时，
+        // 给出的是"真实位置附近"的值，而不是"从换歌起算"的值 —— 后者在"程序启动时歌已经在播"的场景里
+        // 会把歌词直接拉回第一行，反而制造出它要防的那种跳变。
+        // Pins the local clock's baseline to the real position just adopted, so the next time it stands in (say the player
+        // reported a collapse) it reads near the real position instead of "seconds since the track changed" — the latter would
+        // yank the lyrics back to the first line when the app started mid-song, manufacturing the very jump it exists to stop.
+        if (decision.Source is PositionSource.Player or PositionSource.Memory &&
+            Math.Abs(decision.Position - localClockPosition) > PositionArbitrationPolicy.DiscontinuitySeconds)
+        {
+            _localClockBaselineSeconds = decision.Position - _fallbackClock.Elapsed.TotalSeconds;
+            _localClockOffsetSeconds = 0;
+        }
+
+        PlayerReportsTimeline = decision.Source == PositionSource.Player;
+
+        if (decision.Source == PositionSource.Memory)
         {
             if (!_usingMemoryPosition)
             {
                 _usingMemoryPosition = true;
-                Log.Info("Media", $"已改用网易云进程内存中的播放位置：{memoryPosition:0.#} 秒。");
+                Log.Info("Media", $"已改用网易云进程内存中的播放位置：{decision.Position:0.#} 秒。");
             }
 
             // 返回采样时刻当外推基准：位置每秒才更新一次，上层由此补齐两次更新之间的零头。
             // The sampling instant is returned as the extrapolation reference: the value updates once a second and this is how
             // the fraction between two updates is filled in.
-            return (memoryPosition, reportedDuration, memorySampledAt);
+            return (decision.Position, reportedDuration, memorySampledAt);
         }
 
         if (_usingMemoryPosition)
@@ -464,10 +504,56 @@ public sealed class SmtcMediaReader : IDisposable
             Log.Info("Media", "网易云内存位置暂时读不到，已退回本地计时。");
         }
 
+        if (decision.Source == PositionSource.Player)
+        {
+            var reference = IsUsableTimestamp(reportedUpdatedAt) ? reportedUpdatedAt : DateTimeOffset.UtcNow;
+            return (decision.Position, reportedDuration, reference);
+        }
+
+        // 本地计时顶替：位置已经算到此刻，再让上层按它外推就会重复累加，所以基准给 DateTimeOffset.UtcNow。
+        // 时长只在播放器确实上报过时间轴时带出去（例如"塌回开头"被顶住的那几拍），完全不上报时仍然是 0。
+        // The local clock stands in: the value is already current, so the reference is UtcNow or the caller would extrapolate on
+        // top of it. The duration only rides along when the player did report a timeline (the polls where a collapse was held
+        // off); with no timeline at all it stays zero.
         return (
-            Math.Max(0, _fallbackClock.Elapsed.TotalSeconds + _localClockOffsetSeconds),
-            0,
+            decision.Position,
+            reportedDuration > 0 && reportedPosition > 0 ? reportedDuration : 0,
             DateTimeOffset.UtcNow);
+    }
+
+    /// <summary>
+    /// 把仲裁结果记进日志，但只在"位置来源切换"或"确实发生了跳变"时记：轮询是 250 毫秒一拍，无条件记录会把日志淹掉。
+    /// 排查"歌词不跟手"靠的就是这几行：它明确写出这一拍最终用了哪条通道、为什么。
+    /// Logs the arbitration result, but only when the position source changes or a jump really happened: the poll runs every
+    /// 250 ms and logging unconditionally would drown the log. These lines are what diagnosing "the lyrics do not follow" is
+    /// built on: they state which channel won this poll and why.
+    /// </summary>
+    private void LogPositionDecision(in PositionDecision decision, double reportedPosition, double memoryPosition)
+    {
+        var sourceChanged = decision.Source != _lastPositionSource;
+        _lastPositionSource = decision.Source;
+
+        switch (decision.Reason)
+        {
+            case PositionDecisionReason.DiffersFromMemory when sourceChanged:
+                Log.Info("Media", $"播放器上报的位置与内存通道相差 {Math.Abs(reportedPosition - memoryPosition):0.#} 秒（上报 {reportedPosition:0.#} / 内存 {memoryPosition:0.#}），采用内存值。");
+                break;
+            case PositionDecisionReason.BackwardCollapsePending when sourceChanged:
+                Log.Info("Media", $"播放器上报的位置塌回开头（{reportedPosition:0.#} 秒），先不采纳；连续 {PositionArbitrationPolicy.BackwardConfirmationPolls} 拍都报这个值才当作真实跳转。");
+                break;
+            case PositionDecisionReason.BackwardCollapseConfirmed:
+                Log.Info("Media", $"播放器连续 {PositionArbitrationPolicy.BackwardConfirmationPolls} 拍都报 {reportedPosition:0.#} 秒，按真实跳转采纳。");
+                break;
+            case PositionDecisionReason.BackwardSeek:
+                Log.Info("Media", $"播放器上报的位置向后跳到 {reportedPosition:0.#} 秒（不是塌回开头的形状），按真实跳转采纳。");
+                break;
+            case PositionDecisionReason.ForwardSeek:
+                Log.Info("Media", $"播放器上报的位置向前跳到 {reportedPosition:0.#} 秒，按真实跳转采纳。");
+                break;
+            case PositionDecisionReason.LocalClockFallback when sourceChanged:
+                Log.Info("Media", $"播放器不上报时间轴，改用本地计时：{decision.Position:0.#} 秒。");
+                break;
+        }
     }
 
     /// <summary>
@@ -480,6 +566,14 @@ public sealed class SmtcMediaReader : IDisposable
     public void ResetLocalClock()
     {
         Interlocked.Exchange(ref _localClockOffsetSeconds, 0d);
+        _localClockBaselineSeconds = 0;
+
+        // 仲裁里"上一拍的值"也要一起清掉：它记的是复位之前的位置，不清的话下一拍的上报值（回到开头附近）
+        // 会被当成"塌回开头"而白白挡住三拍。
+        // The arbiter's "last adopted value" is cleared too: it refers to the position from before the reset, and leaving it
+        // would make the next reported value (near the start of the song) look like a collapse and block it for three polls.
+        _positionArbitration.Reset();
+
         _fallbackClock.Restart();
         Log.Info("Media", "本地计时已复位到当前歌曲开头。");
         RepublishAsync();
@@ -512,7 +606,13 @@ public sealed class SmtcMediaReader : IDisposable
         RepublishAsync();
     }
 
-    /// <summary>当前是否正在使用本地计时兜底（播放器不上报可用时间轴）。/ Whether the local clock is currently standing in (the player reports no usable timeline).</summary>
+    /// <summary>
+    /// 这一拍是不是以"播放器自己上报的时间轴"为准（仲裁结果，见 <see cref="PositionSource.Player"/>）。
+    /// 只用于 <see cref="NudgeLocalClock"/> 判断手动偏移该不该生效：位置以播放器为准时，偏移会跟它打架。
+    /// Whether this poll is using the player's own reported timeline (an arbitration result, see <see cref="PositionSource.Player"/>).
+    /// Only used by <see cref="NudgeLocalClock"/> to decide whether a manual offset applies: while the player's own timeline is
+    /// the source of truth, an offset would fight it.
+    /// </summary>
     private bool PlayerReportsTimeline { get; set; }
 
     private void AddOffset(double seconds)
