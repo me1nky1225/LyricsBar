@@ -167,6 +167,24 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
         RenderingBias = RenderingBias.Performance
     };
 
+    // 封面与曲目信息各拿一份自己的模糊效果：BlurEffect 是 Freezable，同一个实例挂到两个元素上，
+    // 两个元素会抢同一份动画（后挂的那次 BeginAnimation 会把前一个的动画顶掉）。
+    // The artwork and the track-info block each get their own blur: BlurEffect is a Freezable, so one instance attached to two
+    // elements would have both fighting over the same animation (the later BeginAnimation replaces the earlier one).
+    private readonly BlurEffect _coverBlur = new()
+    {
+        Radius = 0,
+        KernelType = KernelType.Gaussian,
+        RenderingBias = RenderingBias.Performance
+    };
+
+    private readonly BlurEffect _trackInfoBlur = new()
+    {
+        Radius = 0,
+        KernelType = KernelType.Gaussian,
+        RenderingBias = RenderingBias.Performance
+    };
+
     private readonly DropShadowEffect _textShadow = new()
     {
         Color = Colors.Black,
@@ -212,6 +230,9 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
 
     private double _overlayFilmOpacity;
     private double _overlayBlurRadius;
+    private double _coverBlurRadius;
+    private double _trackInfoBlurRadius;
+    private LyricsOverlayRegion _overlayRegion = LyricsOverlayRegion.None;
 
     // 布局度量（尺寸或外观变化时重算）
     private double _textAreaWidth;
@@ -320,7 +341,7 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
         _lineGapPercent = style.LineGapPercent;
         _textAlignment = string.IsNullOrWhiteSpace(style.TextAlignment) ? "Center" : style.TextAlignment;
         _coverSizeDip = style.CoverSizeDip > 0 ? style.CoverSizeDip : 34;
-        _typeface = ResolveTypeface(style.FontFamily);
+        _typeface = ResolveTypeface(style.FontFamily, style.FontWeight, style.FontItalic);
 
         _primaryBrush = CreateBrush(style.PrimaryColor, Colors.White);
         _secondaryBrush = CreateBrush(style.SecondaryColor, Colors.White);
@@ -393,29 +414,53 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
     }
 
     /// <inheritdoc />
-    public void SetOverlay(bool visible)
+    public void SetOverlay(LyricsOverlayRegion region)
     {
-        if (_disposed)
+        if (_disposed || _overlayRegion == region)
             return;
 
-        AnimateOpacity(_overlayFilm, ref _overlayFilmOpacity, visible ? 1 : 0, OverlayFadeDuration);
-        AnimateBlurRadius(visible ? OverlayBlurRadius : 0, OverlayFadeDuration);
+        _overlayRegion = region;
 
-        if (visible)
-        {
+        // 暗色遮罩只跟歌词那一块走：它是为了让歌词底下的播放控制看得清，指针在曲目信息上时不该连带暗下来。
+        // The dark film follows the lyrics part only: it exists so the transport controls under the lyrics stay readable, and a
+        // pointer over the track info should not darken anything.
+        var blurLyrics = region == LyricsOverlayRegion.Lyrics;
+        var blurInfo = region == LyricsOverlayRegion.Info;
+
+        AnimateOpacity(_overlayFilm, ref _overlayFilmOpacity, blurLyrics ? 1 : 0, OverlayFadeDuration);
+
+        // 先把效果挂上再起动画：半径此刻还是 0，挂上去不会闪，等动画把半径推到目标值就自然糊起来。
+        // Attach before animating: the radius is still zero at this instant, so attaching cannot flash, and the blur appears when
+        // the animation drives the radius up.
+        if (blurLyrics)
             _blurHost.Effect = _overlayBlur;
-            return;
+
+        if (blurInfo)
+        {
+            _coverHost.Effect = _coverBlur;
+            _trackInfoPanel.Effect = _trackInfoBlur;
         }
 
-        // 模糊半径回到 0 之后把效果摘掉：一直挂着它会让歌词内容每帧都过一遍着色器，文字也会因为多一次栅格化而发糊。
-        // The effect is detached once the radius reaches zero: leaving it attached would push the lyric content through a
-        // shader every frame and soften the text with an extra rasterisation pass.
+        AnimateBlurRadius(_overlayBlur, ref _overlayBlurRadius, blurLyrics ? OverlayBlurRadius : 0, OverlayFadeDuration);
+        AnimateBlurRadius(_coverBlur, ref _coverBlurRadius, blurInfo ? OverlayBlurRadius : 0, OverlayFadeDuration);
+        AnimateBlurRadius(_trackInfoBlur, ref _trackInfoBlurRadius, blurInfo ? OverlayBlurRadius : 0, OverlayFadeDuration);
+
+        if (blurLyrics && blurInfo)
+            return;
+
+        // 模糊半径回到 0 之后把效果摘掉：一直挂着它会让内容每帧都过一遍着色器，文字也会因为多一次栅格化而发糊。
+        // The effects are detached once their radius reaches zero: leaving one attached would push that content through a shader
+        // every frame and soften the text with an extra rasterisation pass.
         var timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = OverlayFadeDuration };
         timer.Tick += (_, _) =>
         {
             timer.Stop();
             if (_overlayBlurRadius <= 0.01)
                 _blurHost.Effect = null;
+            if (_coverBlurRadius <= 0.01)
+                _coverHost.Effect = null;
+            if (_trackInfoBlurRadius <= 0.01)
+                _trackInfoPanel.Effect = null;
         };
         timer.Start();
     }
@@ -665,11 +710,31 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
             {
                 _roll = null;
                 _trackOffset = 0;
-                ApplyInPlace(frame);
 
+                // 收尾必须落"最新一帧"，而不是起滚时那一帧：起滚那一帧是换行瞬间的快照，它的逐字进度≈0，
+                // 拿它落地会让这一行的擦亮从 0 重新扫一遍——真机上"每句开头擦亮一两个词又跳回开头重来"就是它。
+                // 上滚途中的帧只刷新了升格行的进度（见 PresentCore），所以这里取排队的最后一帧补上主行。
+                // The roll must land the NEWEST frame rather than the one that started it: the start frame is the
+                // line-change snapshot whose syllable progress is ≈ 0, and landing it restarts this line's wipe from zero —
+                // the real-hardware symptom where the first couple of words light up, the wipe snaps back, and the line
+                // sweeps again. Frames arriving mid-roll only refreshed the promoted row, so the queued one fills in the
+                // main row.
                 var queued = _pendingFrame;
                 _pendingFrame = null;
-                if (queued is { } next && !ReferenceEquals(next, frame))
+
+                var landed = queued is { } latest &&
+                             latest.CurrentLineIndex == frame.CurrentLineIndex &&
+                             string.Equals(latest.TrackId, frame.TrackId, StringComparison.Ordinal)
+                    ? latest
+                    : frame;
+
+                ApplyInPlace(landed);
+                _lastFrame = landed;
+
+                // 排队帧属于"再下一句"时才需要接着滚；同一句的排队帧已经落地了，不能再滚一次。
+                // A queued frame only needs another roll when it belongs to a LATER line; a queued frame of the same line has
+                // already landed above and must not roll a second time.
+                if (queued is { } next && !ReferenceEquals(next, landed))
                     Dispatcher.BeginInvoke(new Action(() => PresentCore(next, animateTransition: true)));
             });
 
@@ -859,6 +924,15 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
     {
         _trackInfoTitle.FontFamily = _typeface.FontFamily;
         _trackInfoArtist.FontFamily = _typeface.FontFamily;
+
+        // 字重与斜体跟着歌词走：曲目信息块与歌词并排，一边粗一边不粗会显得像两套排版。
+        // Weight and slant follow the lyrics: the track-info block sits right beside them, and one bold next to one regular
+        // reads like two different typographic systems.
+        _trackInfoTitle.FontWeight = _typeface.Weight;
+        _trackInfoArtist.FontWeight = _typeface.Weight;
+        _trackInfoTitle.FontStyle = _typeface.Style;
+        _trackInfoArtist.FontStyle = _typeface.Style;
+
         _trackInfoTitle.FontSize = _currentFontSize;
         _trackInfoArtist.FontSize = _nextFontSize;
         _trackInfoTitle.Foreground = _primaryBrush;
@@ -876,10 +950,31 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
         };
     }
 
-    private static Typeface ResolveTypeface(string? fontFamily)
-        => string.IsNullOrWhiteSpace(fontFamily)
-            ? new Typeface("Segoe UI")
-            : new Typeface(new FontFamily(fontFamily), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+    /// <summary>
+    /// 按字体族、字重与斜体造一个 <see cref="Typeface"/>。
+    ///
+    /// 字重与斜体一起在这里定，是因为歌词两行与曲目信息块共用这一个 Typeface（歌词走 <see cref="LyricsCanvas"/> 的
+    /// 自绘，曲目信息走两个 TextBlock 的 FontFamily），一次定好两边就不会一个粗一个不粗。
+    /// 字体族为空时退回系统消息字体，而不是退回"Segoe UI 的默认 Typeface"：后者会把字重与斜体一起丢掉，
+    /// 用户勾了加粗却看不出任何变化。
+    /// Builds a <see cref="Typeface"/> from the family, weight and italic flag.
+    ///
+    /// Weight and slant are decided here because both lyric rows and the track-info block share this one Typeface (the lyrics are
+    /// self-drawn through <see cref="LyricsCanvas"/> while the track info rides two TextBlocks' FontFamily), so deciding once
+    /// keeps the two from disagreeing about being bold. An empty family falls back to the system message font rather than to
+    /// "the default Segoe UI Typeface", which would drop the weight and the slant together and leave a user who ticked bold
+    /// seeing no change at all.
+    /// </summary>
+    private static Typeface ResolveTypeface(string? fontFamily, int fontWeight, bool italic)
+    {
+        var family = string.IsNullOrWhiteSpace(fontFamily)
+            ? SystemFonts.MessageFontFamily
+            : new FontFamily(fontFamily);
+
+        var weight = fontWeight >= 600 ? FontWeights.Bold : FontWeights.Normal;
+        var style = italic ? FontStyles.Italic : FontStyles.Normal;
+        return new Typeface(family, style, weight, FontStretches.Normal);
+    }
 
     private void ApplyTextShadow(string? shadow)
     {
@@ -1627,12 +1722,21 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
         _coverImageOnA = !_coverImageOnA;
     }
 
-    private void AnimateBlurRadius(double to, TimeSpan duration)
+    /// <summary>
+    /// 把一个模糊效果的半径从当前值推到目标值。三个效果（歌词、封面、曲目信息）共用这一份：
+    /// 每次动画前先清掉旧动画并把半径落回字段里记的当前值，否则中途改方向会从动画的起始值跳一下。
+    /// Drives one effect's radius from its current value to the target. All three effects (lyrics, artwork, track info) share it:
+    /// each run clears the previous animation and snaps the radius back to the value recorded in the field, otherwise reversing
+    /// direction mid-fade would jump from the animation's original start value.
+    /// </summary>
+    private static void AnimateBlurRadius(BlurEffect effect, ref double current, double to, TimeSpan duration)
     {
-        _overlayBlur.BeginAnimation(BlurEffect.RadiusProperty, null);
-        _overlayBlur.Radius = _overlayBlurRadius;
-        _overlayBlur.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(_overlayBlurRadius, to, duration));
-        _overlayBlurRadius = to;
+        effect.BeginAnimation(BlurEffect.RadiusProperty, null);
+        effect.Radius = current;
+        if (Math.Abs(to - current) > 0.001)
+            effect.BeginAnimation(BlurEffect.RadiusProperty, new DoubleAnimation(current, to, duration));
+
+        current = to;
     }
 
     private static void AnimateOpacity(UIElement element, ref double current, double to, TimeSpan duration)

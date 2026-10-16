@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    位置层看门狗自检。它只引用主工程，不引用 WPF 界面，因此能在无窗口环境里跑：
+    逐条验证 MemoryChannelWatchdog（内存锁定值与本地计时推进速度长期不符就作废）与
+    LocalClockStandInGuard（本地计时连续顶替满 30 秒就冻结）在各种形状下的判定。
+    Position-layer watchdog self-check. It references the main project only (no WPF surface), so it runs headless: it walks
+    MemoryChannelWatchdog (a locked memory value whose advance rate long disagrees with the local clock is dropped) and
+    LocalClockStandInGuard (thirty continuous seconds of local-clock stand-in freezes the position) through their cases.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>PositionGuardProbe</AssemblyName>
+    <RootNamespace>PositionGuardProbe</RootNamespace>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\LyricsBar\LyricsBar.csproj" />
+  </ItemGroup>
+
+</Project>

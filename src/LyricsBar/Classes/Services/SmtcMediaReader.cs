@@ -71,6 +71,47 @@ public sealed class SmtcMediaReader : IDisposable
     /// <summary>位置仲裁：上一拍的值、塌回开头的候选等状态都在它里面；本类只负责把三条通道读出来交给它。</summary>
     private readonly PositionArbitrationPolicy _positionArbitration = new();
 
+    /// <summary>
+    /// 内存通道看门狗：锁定之后位置必须与本地计时同步推进，持续不符就作废重扫（见 <see cref="MemoryChannelWatchdog"/>）。
+    /// 真机日志里"通道已失效"一次都没打过，而锁定的地址数在 3–113 之间乱跳——这说明现有的失效判据
+    /// （连续 4 拍读不到值）漏掉了"锁到了错误的地址"这一整类失败。
+    /// The memory channel's watchdog: once locked, the position has to advance in step with the local clock, and a
+    /// persistent disagreement means a rescan (see MemoryChannelWatchdog). "Channel invalidated" never fired in the
+    /// real-hardware logs while the locked address count bounced between 3 and 113, which means the existing failure
+    /// test (four polls with no value) misses the whole class of "locked onto the wrong addresses".
+    /// </summary>
+    private readonly MemoryChannelWatchdog _memoryWatchdog = new();
+
+    /// <summary>
+    /// 本地计时顶替上限：连续顶替满 30 秒就冻结位置，等真实通道恢复（见 <see cref="LocalClockStandInGuard"/>）。
+    /// The cap on the local clock's stand-in: after thirty continuous seconds the position freezes until a real channel
+    /// returns (see LocalClockStandInGuard).
+    /// </summary>
+    private readonly LocalClockStandInGuard _standInGuard = new();
+
+    /// <summary>
+    /// 内存锁定的健全性检查（见 <see cref="MemoryLockSanityPolicy"/>）：v1.4.6 真机日志证明网易云更新后扫描会锁到
+    /// 一个 12:39 起算的全局计时器（数千份副本、1 倍速、换歌不归零），于是播放位置变成 4800 秒的荒谬值、
+    /// 歌词越过所有行尾停在最后一行——用户报的"匹配不准、不会动了"。它在仲裁之前把这种锁定挡掉。
+    /// The sanity check on the memory lock (see MemoryLockSanityPolicy): the v1.4.6 real-hardware log proved that after
+    /// a NetEase update the scan locks onto a global timer started at 12:39 (thousands of copies, 1x, never resets on
+    /// a track change), so the playback position became an absurd 4800 seconds and the lyrics froze past every line's
+    /// end — the user's "matching is off and it stopped moving". It blocks such locks before the arbiter sees them.
+    /// </summary>
+    private readonly MemoryLockSanityPolicy _memorySanity = new();
+
+    /// <summary>上一拍 <see cref="ResolvePosition"/> 的时刻（UTC ticks），两个看门狗靠它算"过了多少秒"。</summary>
+    private long _lastResolveTicks = DateTimeOffset.UtcNow.Ticks;
+
+    /// <summary>本地计时是否已被冻结。冻结期间每拍返回同一个钉住的位置（基准给当前时刻，外推加零）。</summary>
+    private bool _localClockFrozen;
+
+    /// <summary>冻结时钉住的位置（秒）：最近一次从真实通道采信的值，没有过就退回当时的计时读数。</summary>
+    private double _frozenPosition;
+
+    /// <summary>最近一次从真实通道（上报值 / 内存）采信的位置。冻结时回到这里，让偏差不随秒表继续增长。</summary>
+    private double _lastRealPosition = double.NaN;
+
     /// <summary>上一拍最终采用的位置来源，只用于"来源切换时打一条日志"。</summary>
     private PositionSource _lastPositionSource = PositionSource.None;
 
@@ -98,6 +139,15 @@ public sealed class SmtcMediaReader : IDisposable
 
     /// <summary>当前是否正在采用内存位置。仅用于把"切换"这件事记进日志，不参与任何计算。</summary>
     private bool _usingMemoryPosition;
+
+    /// <summary>
+    /// 上一拍的内存值是不是特征码通道给的（见 <see cref="NeteasePositionService.IsSignatureChannel"/>）。通道切换时
+    /// 用它判断该清掉两条看门狗的状态：特征码时期的位置不适用"必须贴近本地计时"，带着旧账回到扫描通道会误判。
+    /// Whether the previous poll's memory value came from the signature channel. Used to detect the channel switch and clear
+    /// both watchdogs: a signature-channel position is not bound to sit near the local clock, so carrying that history back
+    /// into the scan channel would misjudge it.
+    /// </summary>
+    private bool _lastFromSignature;
 
     /// <summary>按曲目缓存的封面 data URI，以及它的重试计数。见 <see cref="ResolveCoverArtAsync"/>。</summary>
     private string _coverTrackKey = string.Empty;
@@ -404,6 +454,12 @@ public sealed class SmtcMediaReader : IDisposable
     {
         var trackKey = BuildTrackKey(sourceId, title, artist);
         var trackChanged = !string.Equals(trackKey, _fallbackTrackKey, StringComparison.Ordinal);
+
+        // app 启动后的第一首：歌可能已经播了一大半，位置本来就不是从零开始，"换歌后位置归零"的检查不对它布防。
+        // The first track after app start: the song may already be half over, so the position is legitimately not zero
+        // and the "returns to zero after a track change" check is not armed for it.
+        var firstTrack = _fallbackTrackKey.Length == 0;
+
         if (trackChanged)
         {
             _fallbackTrackKey = trackKey;
@@ -414,7 +470,28 @@ public sealed class SmtcMediaReader : IDisposable
             // 换歌回到这首歌的开头，用户的手动偏移不再适用，一并清零。
             // A track change returns to the start of the new song, so the user's manual offset is stale and cleared too.
             _localClockOffsetSeconds = 0;
+
+            // 看门狗与冻结状态都跟着换歌作废：新歌的位置从零开始是正常的，不能被当成上一首的漂移或顶替。
+            // The watchdogs and the frozen state are dropped with the track change: starting from zero is normal for a new
+            // song and must not read as the previous song's drift or stand-in.
+            _memoryWatchdog.Reset();
+            _standInGuard.Reset();
+            _lastRealPosition = double.NaN;
+            _localClockFrozen = false;
         }
+
+        // 健全性检查、两个看门狗共用这一拍的时间增量。手动同步（ResetLocalClock / NudgeLocalClock 后的
+        // RepublishAsync）会在线程池上并发触发一次重读，与轮询循环只差几毫秒，用 Interlocked 取上一 tick 并
+        // clamp 到 [0, 1] 秒，保证增量在任何并发下都有意义。
+        // The sanity check and both watchdogs share this poll's time delta. A manual sync (RepublishAsync after
+        // ResetLocalClock / NudgeLocalClock) triggers a concurrent re-read on the thread pool milliseconds apart from
+        // the poll loop, so the previous tick is taken with Interlocked and the delta clamped to [0, 1] s to stay
+        // meaningful either way.
+        var nowTicks = DateTimeOffset.UtcNow.Ticks;
+        var elapsedSeconds = Math.Clamp(
+            TimeSpan.FromTicks(nowTicks - Interlocked.Exchange(ref _lastResolveTicks, nowTicks)).TotalSeconds,
+            0,
+            1);
 
         // 位置连续多次轮询都不推进，说明这个播放器只是"占了个位置字段"，实际不可用。
         var reportedAdvanced = double.IsNaN(_lastReportedPosition) ||
@@ -457,6 +534,61 @@ public sealed class SmtcMediaReader : IDisposable
             0,
             _fallbackClock.Elapsed.TotalSeconds + _localClockBaselineSeconds + _localClockOffsetSeconds);
 
+        var fromSignature = hasMemory && NeteasePosition?.IsSignatureChannel == true;
+
+        // 通道切换那一拍清掉两条看门狗的状态。特征码通道给的是播放器自己的字段，不存在"锁到全局计时器"的可能，
+        // 而"位置必须贴近本地计时"这条判据对它也不成立（中途开始播放时本来就差一大截），所以它工作期间两条看门狗
+        // 一律停喂；回到扫描通道时必须从零开始，不能带着特征码时期攒下的历史。
+        // The poll where the channel changes clears both watchdogs. The signature channel reads the player's own field, so a
+        // locked global timer is impossible, and "the position must sit near the local clock" does not hold for it either
+        // (starting playback mid-song legitimately puts it far away); both watchdogs are therefore left unfed while it works
+        // and have to start clean when the scan channel returns rather than inherit the signature period's history.
+        if (fromSignature != _lastFromSignature)
+        {
+            _lastFromSignature = fromSignature;
+            _memorySanity.Reset();
+            _memoryWatchdog.Reset();
+        }
+
+        // 健全性检查先于仲裁：锁到的值"能读、在区间、1 倍速"只证明它是个计时器，不证明它是当前曲目的位置
+        // （真机日志：网易云更新后扫描锁到 12:39 起算的全局计时器，位置变成 4800 秒、换歌不归零）。检查不过就
+        // 把这一拍的内存值当作"读不到"，并请求带长冷却的重新扫描——本地计时顶多漂秒级，计时器当位置发布出去
+        // 会让歌词越过所有行尾停在最后一行。
+        // The sanity check runs before the arbiter: a value that reads fine, sits in range, and advances at 1x only
+        // proves it is a timer, not that it is this track's position (real-hardware log: after a NetEase update the
+        // scan locked a global timer started 12:39, the position became 4800 seconds and never reset on a track
+        // change). A failed check treats this poll's memory value as unreadable and requests a rescan with a long
+        // cool-down — the local clock drifts by seconds at worst, while publishing a timer as the position sails the
+        // lyrics past every line's end and freezes them on the last one.
+        if (!fromSignature)
+        {
+            var sanity = _memorySanity.Observe(
+                armTrackReset: trackChanged && !firstTrack,
+                hasMemory: hasMemory,
+                memoryPosition: memoryPosition,
+                localClockPosition: localClockPosition,
+                isPlaying: isPlaying,
+                elapsedSeconds: elapsedSeconds);
+
+            if (sanity is not MemoryLockSanityVerdict.Ok)
+            {
+                var sanityReason = sanity switch
+                {
+                    MemoryLockSanityVerdict.RejectLockAgreement =>
+                        $"新锁定的位置与本地计时相差 {Math.Abs(memoryPosition - localClockPosition):0.#} 秒"
+                        + $"（内存 {memoryPosition:0.#} / 计时 {localClockPosition:0.#}）",
+                    MemoryLockSanityVerdict.RejectTrackReset =>
+                        $"换歌后位置未归零（{memoryPosition:0.#} 秒）",
+                    _ => "原因未知"
+                };
+
+                Log.Info("Media", $"网易云内存锁定未通过健全性检查：{sanityReason}，本拍不采用，已请求重新扫描。");
+                NeteasePosition?.InvalidateChannel(sanityReason, sanityBackoff: true);
+                hasMemory = false;
+                memoryPosition = 0;
+            }
+        }
+
         var decision = _positionArbitration.Decide(
             trackKey,
             new PositionObservation(
@@ -468,6 +600,37 @@ public sealed class SmtcMediaReader : IDisposable
                 IsPlaying: isPlaying));
 
         LogPositionDecision(decision, reportedPosition, memoryPosition);
+
+        // 真实通道（上报值 / 内存）采信到什么，就记住什么：冻结时要回到这个位置。冻结中若真实通道恢复，
+        // 立刻解除冻结并把两个看门狗清零——旧的观察历史属于冻结前的时间段，不带过来。
+        // Whatever a real channel (reported value / memory) adopts is remembered: that is where the freeze returns to.
+        // If a real channel recovers while frozen, the freeze lifts at once and both watchdogs clear — the old history
+        // belongs to the time before the freeze and does not carry over.
+        if (decision.Source is PositionSource.Player or PositionSource.Memory)
+        {
+            _lastRealPosition = decision.Position;
+
+            if (_localClockFrozen)
+            {
+                _localClockFrozen = false;
+                _standInGuard.Reset();
+                _memoryWatchdog.Reset();
+                Log.Info("Media", $"真实位置通道已恢复，解除本地计时冻结（{decision.Position:0.#} 秒）。");
+            }
+        }
+
+        // 本地计时顶替上限：连续顶替满 30 秒就把位置钉在最近一次采信的真实位置上，等真实通道恢复。
+        // The local clock's stand-in cap: after thirty continuous seconds the position is pinned to the last position
+        // adopted from a real channel until a real channel returns.
+        if (_standInGuard.Observe(decision.Source == PositionSource.LocalClock, isPlaying, elapsedSeconds)
+            is LocalClockStandInVerdict.Freeze && !_localClockFrozen)
+        {
+            _localClockFrozen = true;
+            _frozenPosition = double.IsFinite(_lastRealPosition) ? _lastRealPosition : localClockPosition;
+            Log.Info(
+                "Media",
+                $"本地计时已连续顶替 {LocalClockStandInGuard.MaximumStandInSeconds:0.#} 秒仍无真实通道，冻结播放位置（{_frozenPosition:0.#} 秒），等待通道恢复。");
+        }
 
         // 把本地计时的基准挂到刚刚采信的真实位置上：这样它下一次顶替（例如播放器报了个塌回开头的假值）时，
         // 给出的是"真实位置附近"的值，而不是"从换歌起算"的值 —— 后者在"程序启动时歌已经在播"的场景里
@@ -482,20 +645,58 @@ public sealed class SmtcMediaReader : IDisposable
             _localClockOffsetSeconds = 0;
         }
 
+        // 内存通道看门狗。**必须在钉基线之后调用**：v1.4.6 把这段放在 pin 之前，结果新锁定那一拍的窗口基线
+        // 采到的是钉基线以前的旧时钟值（真机实例：内存 163.1 / 计时还是 12.7），而 pin 当拍就把时钟改成 ≈163；
+        // 窗口结算时时钟"推进"了 150 秒而内存只推进 10 秒 → 健康锁定被误判失效 → 触发重扫 → 第二次扫描锁中
+        // 垃圾簇，此后再也回不到正常锁定。放在这里，窗口基线拿到的就是钉基线之后的值，rising poll 也不会
+        // 采到"下一秒就被改写"的基线。
+        // The memory channel's watchdog. It **must run after the pin**: v1.4.6 placed it before the pin, so the window
+        // baseline of a freshly locked poll captured the pre-pin clock value (real instance: memory 163.1, clock still
+        // 12.7) while the pin that very poll moved the clock to ≈163; at window close the clock had "advanced" 150
+        // seconds against the memory's 10 → a healthy lock was judged stale → a rescan was triggered → the second scan
+        // locked a garbage cluster and the channel never recovered. Here the baseline is taken after the pin, and the
+        // opening poll can no longer capture a baseline that is rewritten a moment later.
+        if (!fromSignature &&
+            !_localClockFrozen &&
+            _memoryWatchdog.Observe(trackKey, hasMemory, memoryPosition, localClockPosition, isPlaying, elapsedSeconds)
+            is MemoryChannelVerdict.Invalidate)
+        {
+            NeteasePosition?.InvalidateChannel("锁定后与本地计时的推进速度持续不符", sanityBackoff: true);
+        }
+
         PlayerReportsTimeline = decision.Source == PositionSource.Player;
+
+        // 特征码通道顺带给出真实时长与播放状态。网易云 SMTC 上报的时长通常是 0（进度条因此一直是空的），
+        // 而播放器自己的时长字段是准的——`tools/SignatureProbe` 实测 261.538 秒对接口的 261537 毫秒，差 1 毫秒。
+        // The signature channel also reports the real duration and play status. NetEase's SMTC usually reports a duration of
+        // zero (which left the progress bar empty), while the player's own field is accurate — SignatureProbe measured
+        // 261.538 s against the API's 261,537 ms, a one-millisecond difference.
+        var signatureDuration = 0d;
+        var signatureIsPlaying = false;
+        if (fromSignature)
+            NeteasePosition?.TryGetTrackInfo(out signatureDuration, out signatureIsPlaying);
+
+        var hasSignatureDuration = signatureDuration > 0;
+        var effectiveDuration = hasSignatureDuration ? signatureDuration : reportedDuration;
 
         if (decision.Source == PositionSource.Memory)
         {
             if (!_usingMemoryPosition)
             {
                 _usingMemoryPosition = true;
-                Log.Info("Media", $"已改用网易云进程内存中的播放位置：{decision.Position:0.#} 秒。");
+                Log.Info(
+                    "Media",
+                    fromSignature
+                        ? $"已改用网易云播放器的位置字段（特征码通道）：{decision.Position:0.#} 秒，时长 {effectiveDuration:0.#} 秒，播放状态 {(signatureIsPlaying ? "播放中" : "未播放")}。"
+                        : $"已改用网易云进程内存中的播放位置：{decision.Position:0.#} 秒。");
             }
 
-            // 返回采样时刻当外推基准：位置每秒才更新一次，上层由此补齐两次更新之间的零头。
+            // 返回采样时刻当外推基准：位置每秒才更新一次，上层由此补齐两次更新之间的零头。特征码通道 100 毫秒一拍，
+            // 这个零头只有不到 0.1 秒，等于让"擦亮"直接跟着播放器走。
             // The sampling instant is returned as the extrapolation reference: the value updates once a second and this is how
-            // the fraction between two updates is filled in.
-            return (decision.Position, reportedDuration, memorySampledAt);
+            // the fraction between two updates is filled in. The signature channel polls every 100 ms, so that fraction is
+            // under 0.1 s — effectively letting the wipe follow the player directly.
+            return (decision.Position, effectiveDuration, memorySampledAt);
         }
 
         if (_usingMemoryPosition)
@@ -507,18 +708,30 @@ public sealed class SmtcMediaReader : IDisposable
         if (decision.Source == PositionSource.Player)
         {
             var reference = IsUsableTimestamp(reportedUpdatedAt) ? reportedUpdatedAt : DateTimeOffset.UtcNow;
-            return (decision.Position, reportedDuration, reference);
+            return (decision.Position, effectiveDuration, reference);
         }
 
         // 本地计时顶替：位置已经算到此刻，再让上层按它外推就会重复累加，所以基准给 DateTimeOffset.UtcNow。
-        // 时长只在播放器确实上报过时间轴时带出去（例如"塌回开头"被顶住的那几拍），完全不上报时仍然是 0。
+        // 时长只在确实有出处时带出去：特征码通道读到的真实时长（它比 SMTC 可靠）优先，其次是播放器确实上报过
+        // 时间轴的那几拍（例如"塌回开头"被顶住时），两者都没有就仍然是 0。
         // The local clock stands in: the value is already current, so the reference is UtcNow or the caller would extrapolate on
-        // top of it. The duration only rides along when the player did report a timeline (the polls where a collapse was held
-        // off); with no timeline at all it stays zero.
-        return (
-            decision.Position,
-            reportedDuration > 0 && reportedPosition > 0 ? reportedDuration : 0,
-            DateTimeOffset.UtcNow);
+        // top of it. The duration only rides along when it has a source: the signature channel's real value comes first (it is
+        // more trustworthy than SMTC), then the polls where the player really reported a timeline (a collapse held off), and
+        // with neither it stays zero.
+        var standInDuration = hasSignatureDuration
+            ? signatureDuration
+            : reportedDuration > 0 && reportedPosition > 0 ? reportedDuration : 0;
+
+        //
+        // 冻结中：返回钉住的位置而不是计时读数，基准同样给当前时刻——上层按此外推只会加零，位置就此停住。
+        // While frozen: the pinned position is returned instead of the clock reading, again with the current instant as
+        // reference, so the caller's extrapolation adds nothing and the position holds still.
+        if (_localClockFrozen)
+        {
+            return (_frozenPosition, standInDuration, DateTimeOffset.UtcNow);
+        }
+
+        return (decision.Position, standInDuration, DateTimeOffset.UtcNow);
     }
 
     /// <summary>
@@ -574,6 +787,18 @@ public sealed class SmtcMediaReader : IDisposable
         // would make the next reported value (near the start of the song) look like a collapse and block it for three polls.
         _positionArbitration.Reset();
 
+        // 看门狗、健全性检查与冻结一并作废：用户刚手动把位置对到歌头，旧的观察历史（顶替时长、推进速度、
+        // 锁定新鲜度）全部不算数。健全性检查重置后，下一次内存值读数会被当作"新锁定"重新核对与计时的关系。
+        // The watchdogs, the sanity check and the freeze are dropped as well: the user just realigned to the start of
+        // the song by hand, so none of the old history (stand-in duration, advance rates, lock freshness) counts any
+        // more. With the sanity check reset, the next memory reading is treated as a fresh lock and re-checked
+        // against the clock.
+        _memoryWatchdog.Reset();
+        _standInGuard.Reset();
+        _memorySanity.Reset();
+        _lastRealPosition = double.NaN;
+        _localClockFrozen = false;
+
         _fallbackClock.Restart();
         Log.Info("Media", "本地计时已复位到当前歌曲开头。");
         RepublishAsync();
@@ -593,14 +818,20 @@ public sealed class SmtcMediaReader : IDisposable
         // 偏移只对"当前采用本地计时"的场景生效；播放器自己上报时间轴时位置以它为准，偏移会让两套时钟互相打架。
         // The offset only applies while the local clock is the source of truth; when the player reports a timeline the position
         // comes from it, and an offset would make the two clocks fight each other.
-        if (!PlayerReportsTimeline)
+        if (PlayerReportsTimeline)
         {
-            AddOffset(seconds);
-            Log.Info("Media", $"本地计时已{(seconds > 0 ? "快进" : "快退")} {Math.Abs(seconds):0.#} 秒。");
+            Log.Info("Media", $"当前播放器自行上报时间轴，忽略手动偏移（{seconds:0.#} 秒）。");
         }
         else
         {
-            Log.Info("Media", $"当前播放器自行上报时间轴，忽略手动偏移（{seconds:0.#} 秒）。");
+            AddOffset(seconds);
+
+            // 手动微调意味着用户正在对齐位置：冻结解除、顶替计时清零，别让"顶替太久"把用户刚对好的位置又钉回旧值。
+            // A manual nudge means the user is realigning the position: the freeze lifts and the stand-in counter clears, so
+            // "stood in too long" cannot pin the freshly aligned position back to an old value.
+            _localClockFrozen = false;
+            _standInGuard.Reset();
+            Log.Info("Media", $"本地计时已{(seconds > 0 ? "快进" : "快退")} {Math.Abs(seconds):0.#} 秒。");
         }
 
         RepublishAsync();

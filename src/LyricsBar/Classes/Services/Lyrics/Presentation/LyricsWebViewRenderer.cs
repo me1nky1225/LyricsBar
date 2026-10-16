@@ -132,6 +132,10 @@ public sealed class LyricsWebViewRenderer(WebView2CompositionControl webView, st
             style.CjkFontFamily,
             style.FontSize,
             style.FontWeight,
+            // 斜体必须序列化成真正的 true/false：页面只在严格等于 true 时才写 italic，字符串 "true" 会被当成不斜。
+            // The italic flag has to serialize as a real true/false: the page writes italic only when it is strictly true, and
+            // the string "true" would be read as upright.
+            style.FontItalic,
             style.CharacterSpacingPercent,
             style.LineGapPercent,
             style.TextAlignment,
@@ -204,23 +208,35 @@ public sealed class LyricsWebViewRenderer(WebView2CompositionControl webView, st
     }
 
     /// <summary>
-    /// 推送悬停浮层的磨砂是否可见。
+    /// 推送悬停磨砂作用在哪一块上。
     ///
-    /// 覆盖效果只能由页面自己做：WPF 的 Effect 作用不到 WebView2 这种合成控件。因此宿主只负责按钮的显隐与落点，
-    /// 页面自己把整条栏糊掉——白膜加宽、内容加 filter:blur，是满宽的一层，宽度跟着窗口走，不需要宿主下发。
-    /// Pushes whether the hover overlay's frost is visible.
+    /// 覆盖效果只能由页面自己做：WPF 的 Effect 作用不到 WebView2 这种合成控件。因此宿主只负责判定指针落在哪一块上，
+    /// 页面自己把那一块糊掉（内容加 filter:blur），宽度跟着窗口走，不需要宿主下发。
+    /// Pushes which part the hover frost applies to.
     ///
     /// That effect can only be done by the page: WPF effects cannot reach a composition control such as WebView2. The host
-    /// therefore owns only the buttons' visibility and position; the page frosts the whole bar itself with a full-bleed film
-    /// and a filter:blur on the content, so it tracks the window width by itself.
+    /// therefore owns only the decision about which part the pointer is over, and the page blurs that part itself (a filter:blur
+    /// on the content), tracking the window width on its own.
     /// </summary>
-    /// <param name="visible">磨砂是否可见。/ Whether the frost is visible.</param>
-    public void SetOverlay(bool visible)
+    /// <param name="region">指针所在的块。/ The part under the pointer.</param>
+    public void SetOverlay(LyricsOverlayRegion region)
     {
         if (_disposed || _failed) return;
-        _pendingOverlay = SerializeMessage("overlay", new { visible });
+        _pendingOverlay = SerializeMessage("overlay", new { region = ToWireRegion(region) });
         StartDrain();
     }
+
+    /// <summary>
+    /// 区域在报文里的写法：小写字符串，None 用 "none"。页面按这三个值判断，收到未知值就什么都不糊。
+    /// How a region is spelled on the wire: lowercase, with None as "none". The page branches on these three values and blurs
+    /// nothing when it sees an unknown one.
+    /// </summary>
+    private static string ToWireRegion(LyricsOverlayRegion region) => region switch
+    {
+        LyricsOverlayRegion.Info => "info",
+        LyricsOverlayRegion.Lyrics => "lyrics",
+        _ => "none"
+    };
 
     /// <summary>
     /// 推送一帧歌词。不可见帧推的是空文本，让 Web 端把两行清空，而不是留着上一首的残影。

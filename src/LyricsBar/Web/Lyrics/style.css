@@ -14,6 +14,7 @@
   --font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", sans-serif;
   --font-size: 13px;
   --font-weight: 500;
+  --font-style: normal;
   --primary: rgba(255, 255, 255, 0.90);
   --secondary: rgba(255, 255, 255, 0.60);
   --translation: rgba(255, 255, 255, 0.70);
@@ -138,11 +139,37 @@ html, body {
    The actual blur is applied with a filter on the content rather than with backdrop-filter: measured in this WebView2's
    transparent composition, backdrop-filter barely does anything (text edge energy only dropped 15% across a hover, which is
    just the contrast compression from the film above), whereas filter acts on the content directly and is deterministic. What
-   gets blurred is exactly the two lyric layers; the .overlay-backdrop underneath covers only .lyrics-pane, so the cover art
-   and the track info stay sharp, and the buttons are a WPF layer that is unaffected either way. */
+   gets blurred is exactly the two lyric layers; the .overlay-backdrop underneath covers only .lyrics-pane, so the buttons are a
+   WPF layer that is unaffected either way.
+   同一个 filter 也用在"曲目信息"区域（封面与曲名/歌手，见下面的 .info-overlay-visible）：既然白膜本身在这个合成里
+   就几乎不起作用，那个区域索性只糊内容、不铺白膜，一条机制两处复用。
+   The same filter also carries the "info" region (cover art plus title/artist, see .info-overlay-visible below): since the film
+   itself barely registers in this composition, that region gets the blur alone with no film, reusing one mechanism twice. */
 .lyrics-layer,
 .spectrum-layer {
   transition: filter 140ms ease;
+}
+
+/* 进入/离开"曲目信息"区域时同样需要淡入淡出而不是硬切。这条必须排在 .cover 自己的 transition 之后：
+   两条选择器特异性相同，后者胜出，于是悬停期间 140ms 的结果盖过封面换歌那套 520ms 的过渡。
+   类一摘掉 filter 就随之消失，不需要任何 filter:none 复位规则——多写一条反而会挡住 .cover.switching 的调色滤镜。
+   Entering/leaving the "info" region has to fade rather than snap. This rule must come after .cover's own transition: the two
+   selectors have equal specificity and the later one wins, so while hovering the 140ms timing overrides the 520ms cover-swap
+   transition. Removing the class removes the filter with it, so no filter:none reset rule is needed — adding one would only
+   shadow the .cover.switching colour filter. */
+.cover,
+.track-info {
+  transition: filter 140ms ease;
+}
+
+/* 指针停在"曲目信息"区域（封面 + 曲名/歌手）时，糊的是内容本身，机制与歌词那边完全一致。
+   这里刻意不放 .overlay-backdrop 那层白膜——该区域的悬停提示由宿主自己画——所以只有模糊，没有压暗。
+   When the pointer sits on the "info" region (cover art + title/artist), the content itself is blurred, using exactly the same
+   mechanism as the lyrics. The .overlay-backdrop film is deliberately absent here — the host draws the hover hint for this
+   region itself — so this is blur only, with no dimming. */
+.layout.info-overlay-visible .cover,
+.layout.info-overlay-visible .track-info {
+  filter: blur(7px);
 }
 
 .layout.overlay-visible .lyrics-layer,
@@ -193,16 +220,23 @@ html, body {
   line-height: 1.12;
 }
 
-/* 曲名用主行那一档字号与颜色，歌手用第二行那一档——与歌词两行的视觉层级一致。 */
-/* The title uses the main row's size and colour, the artist the second row's, matching the lyric rows' visual hierarchy. */
+/* 曲名用主行那一档字号与颜色，歌手用第二行那一档——与歌词两行的视觉层级一致。
+   字重与字形单独写在这里，让曲目信息跟随与歌词完全相同的字体设置，而不是只继承容器的默认值。 */
+/* The title uses the main row's size and colour, the artist the second row's, matching the lyric rows' visual hierarchy. Weight
+   and style are declared here too so the track info follows exactly the same font settings as the lyrics rather than just
+   inheriting the container's defaults. */
 .track-info-title {
   font-size: var(--current-size);
+  font-weight: var(--font-weight);
+  font-style: var(--font-style);
   color: var(--primary);
   opacity: 0.98;
 }
 
 .track-info-artist {
   font-size: var(--next-size);
+  font-weight: var(--font-weight);
+  font-style: var(--font-style);
   color: var(--secondary);
   opacity: 0.72;
 }
@@ -556,6 +590,7 @@ html, body {
 .current-line {
   font-size: var(--current-size);
   font-weight: var(--font-weight);
+  font-style: var(--font-style);
   color: var(--primary);
   opacity: 0.98;
   top: var(--primary-offset-y);
@@ -610,6 +645,7 @@ html, body {
   --promotion-scale: 1;
   font-size: var(--next-size);
   font-weight: var(--font-weight);
+  font-style: var(--font-style);
   color: var(--secondary);
   opacity: 0.72;
   top: var(--secondary-offset-y);
@@ -624,6 +660,7 @@ html, body {
 .translation-line {
   font-size: var(--next-size);
   font-weight: var(--font-weight);
+  font-style: var(--font-style);
   color: var(--translation);
   opacity: 1;
   top: var(--secondary-offset-y);

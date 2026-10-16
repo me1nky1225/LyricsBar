@@ -445,7 +445,33 @@
                         <CheckBox x:Name="TrackInfoBlockCheck" Content="在封面右侧显示曲目信息块（曲名 / 歌手，歌词在它右侧）" />
                         <TextBlock Style="{StaticResource CardHint}"
                                    Text="开着它，曲目信息是封面与歌词之间的独立一块，歌词照旧占两行；关掉则歌词紧贴封面。曲目信息取不到时整块自动收起，不占宽度。" />
-                        <CheckBox x:Name="SyllableCheck" Content="逐字擦亮（需要歌词本身带逐字时间轴）" />
+
+                        <!--
+                          曲目信息块的宽度紧跟在它的勾选项与说明之后：这一项只在上面勾选时才有效果，
+                          中间隔进别的选项会让人看不出宽度调的是哪一块。
+                          The track-info width follows its own checkbox and hint: the setting only has any effect while that checkbox
+                          is on, and putting anything between them would obscure what the width belongs to.
+                        -->
+                        <Grid Margin="0,2,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="44" />
+                            </Grid.ColumnDefinitions>
+                            <!--
+                              标签比同栏其他标签长，右边距在 RowLabel 的默认值上收窄 4px，免得那个右括号被列宽切掉。
+                              The label is longer than its neighbours, so its right margin is trimmed 4px below RowLabel's default
+                              to keep the closing parenthesis from being clipped by the column.
+                            -->
+                            <TextBlock Grid.Column="0" Text="曲目信息宽度 (DIP)" Style="{StaticResource RowLabel}" Margin="0,0,6,0" />
+                            <Slider x:Name="TrackInfoWidthSlider" Grid.Column="1" Minimum="0" Maximum="400" TickFrequency="10" IsSnapToTickEnabled="True" />
+                            <TextBlock x:Name="TrackInfoWidthText" Grid.Column="2" HorizontalAlignment="Right" Foreground="#6B6B6B" />
+                        </Grid>
+                        <TextBlock Style="{StaticResource CardHint}"
+                                   Text="0 = 自适应：宽度按曲名 / 歌手里更长的那一行量出来，随歌变化。给个固定值，整条栏就不会因为两首歌的曲名长短差很多而忽宽忽窄，排不下的字用省略号收尾。" />
+                        <CheckBox x:Name="SyllableCheck" Content="逐字擦亮（有逐字时间轴就逐字，没有就按整行时间推算）" />
+                        <TextBlock Style="{StaticResource CardHint}"
+                                   Text="网易云的逐字时间轴只覆盖一部分曲目：有就按字擦亮，没有就按整行时长平均推算，让每一句都有扫过去的过程（长尾句到估算时长后直接保持全亮）。" />
                         <CheckBox x:Name="CoverCheck" Content="显示歌曲封面（左侧，来自播放器；无封面时显示首字母色块）" />
                         <CheckBox x:Name="ProgressCheck" Content="显示底部播放进度条" />
                         <CheckBox x:Name="NoLyricsInfoCheck" Content="纯音乐 / 无歌词时把曲名与歌手顶到歌词行（配合封面）" />
@@ -495,6 +521,26 @@
                                       IsEditable="True"
                                       ToolTip="可从列表选择，也可以直接输入已安装的字体名" />
                         </Grid>
+
+                        <!--
+                          加粗 / 斜体说的是"这行字长什么样"，和字体是同一件事，所以紧跟字体行并沿用它的 120 标签列对齐。
+                          两个复选框并排而不是各占一行：各自只有一个词，竖排只会把排版卡片拉长。
+                          Bold and italic describe the same thing the font row does — how the glyphs look — so they follow it and
+                          line up with its 120-wide label column. The two share one row instead of taking one each: both are single
+                          words, and stacking them would only stretch the layout card.
+                        -->
+                        <Grid Margin="0,2,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <CheckBox x:Name="FontBoldCheck" Content="加粗" Margin="0,4,14,4" />
+                                <CheckBox x:Name="FontItalicCheck" Content="斜体" Margin="0,4,0,4" />
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Style="{StaticResource CardHint}"
+                                   Text="加粗与斜体同时作用于两行歌词和曲目信息块的曲名 / 歌手。所选字体若没有斜体外形，系统会做合成倾斜，一样能看清。" />
 
                         <Grid Margin="0,6,0,0">
                             <Grid.ColumnDefinitions>
@@ -620,6 +666,16 @@
                                 <Border x:Name="ColorPreview" Width="30" Height="22" Margin="10,0,0,0" BorderBrush="#8C8C8C" BorderThickness="1" CornerRadius="3" />
                             </StackPanel>
                         </Grid>
+
+                        <!--
+                          预设色块由代码后置填进来（见 BuildColorPresetList）：数量与颜色来自 LyricsTextColorPalette，
+                          写死在 XAML 里就等于新增一个预设要改两处。这里只留一个容器。
+                          The preset swatches are filled in by the code-behind (see BuildColorPresetList): their count and colours come
+                          from LyricsTextColorPalette, and hard-coding them here would mean editing two files to add one preset. This
+                          is only the container.
+                        -->
+                        <WrapPanel x:Name="ColorPresetPanel" Margin="120,6,0,0" />
+
                         <CheckBox x:Name="ShadowCheck" Content="文字加对比阴影（深色壁纸下更清晰）" />
                     </StackPanel>
                 </Border>

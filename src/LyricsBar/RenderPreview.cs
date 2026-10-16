@@ -189,10 +189,18 @@ internal static class RenderPreview
         host.UpdateLayout();
         Save(host, 700, 48, "09-overlay-before");
 
-        renderer.SetOverlay(true);
+        renderer.SetOverlay(LyricsOverlayRegion.Lyrics);
         await Task.Delay(260);
         host.UpdateLayout();
         Save(host, 700, 48, "10-overlay");
+
+        // 指针挪到曲目信息那一块上：这一块被糊掉，歌词恢复清晰。两张图摆在一起就是"只糊指针所在的那一块"的证据。
+        // The pointer moves onto the track-info part: that part is blurred while the lyrics return to normal. The two captures
+        // side by side are the evidence for "only the part under the pointer is blurred".
+        renderer.SetOverlay(LyricsOverlayRegion.Info);
+        await Task.Delay(260);
+        host.UpdateLayout();
+        Save(host, 700, 48, "14-info-overlay");
     }
 
     /// <summary>

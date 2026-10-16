@@ -2,11 +2,12 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using LyricsBar.Classes.Services;
 using LyricsBar.Classes.Services.Lyrics;
+using LyricsBar.Classes.Services.Lyrics.Presentation;
 using LyricsBar.Classes.Settings;
-using LyricsBar.Classes.Utils;
 
 namespace LyricsBar.Views;
 
@@ -19,9 +20,6 @@ namespace LyricsBar.Views;
 /// </summary>
 public partial class SettingsWindow : Window
 {
-    /// <summary>字体下拉里代表"跟随系统"的条目。它不对应任何真实字体名，落盘时写回 null。</summary>
-    private const string SystemDefaultFontLabel = "系统默认";
-
     private readonly Action _redockRequested;
     private readonly Dictionary<string, System.Windows.Controls.CheckBox> _sourceChecks = new(StringComparer.Ordinal);
     private bool _loading;
@@ -47,6 +45,7 @@ public partial class SettingsWindow : Window
 
         Loaded += (_, _) => SyncFontComboEditState();
         BuildSourceList();
+        BuildColorPresetList();
         BuildFontFamilyList();
         WireEvents();
         LoadFromSettings();
@@ -76,30 +75,21 @@ public partial class SettingsWindow : Window
     }
 
     /// <summary>
-    /// 用系统里真实安装的字体填充字体下拉，而不是写死几个名字。
-    /// 写死的清单在不同机器上会有一半不存在，用户选了没反应还以为是程序坏了；直接枚举系统字体则永远是可选中的。
-    /// 字体名由系统提供，不需要自己维护。
-    /// Fills the font list with the families actually installed on this machine rather than a hard-coded handful. A hard-coded
-    /// list is half missing on any given machine, and the user picks one that does nothing and assumes the app is broken;
-    /// enumerating the system list always yields selectable entries and needs no maintenance.
+    /// 用 <see cref="LyricsFontCatalog.Candidates"/> 这份精选清单填充字体下拉，而不是枚举系统里所有字体族。
+    /// 枚举出来的清单是按字体名排序的，开头几十上百项全是图标字体（Marlett、Segoe MDL2 Assets 之类）和各种语言
+    /// 补充字形，真正能拿来显示中文歌词的那几款要翻很久才看得到，用户往往以为下拉里没有可用字体。
+    /// 下拉本身仍然是可编辑的，清单里没有的字体族直接在框里输入名字即可，所以这是一份"常用项靠前"的清单，不是白名单。
+    /// Fills the font drop-down from <see cref="LyricsFontCatalog.Candidates"/> instead of enumerating every installed family.
+    /// The enumerated list is sorted by family name, so it opens with dozens of icon faces (Marlett, Segoe MDL2 Assets and
+    /// friends) and assorted language-pack faces, while the few families that actually render Chinese lyrics take a long scroll
+    /// to reach — users concluded the drop-down held nothing usable. The drop-down stays editable, so a family outside the list
+    /// is still typed in by name: this puts the common ones first, it is not a whitelist.
     /// </summary>
     private void BuildFontFamilyList()
     {
-        var names = new List<string> { SystemDefaultFontLabel };
-
-        try
-        {
-            names.AddRange(Fonts.SystemFontFamilies
-                .Select(family => family.Source)
-                .Where(name => !string.IsNullOrWhiteSpace(name))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(name => name, StringComparer.CurrentCulture));
-        }
-        catch (Exception ex)
-        {
-            // 枚举字体失败不该让设置窗口打不开：至少还能手输字体名。
-            Log.Warn("Settings", $"枚举系统字体失败，字体列表只保留默认项: {ex.Message}");
-        }
+        // "跟随系统"那一项仍然排在最前：它是默认值，也是用户想回到系统字体时唯一要找的条目。
+        var names = new List<string> { LyricsFontCatalog.SystemDefaultLabel };
+        names.AddRange(LyricsFontCatalog.Candidates);
 
         FontFamilyCombo.ItemsSource = names;
     }
@@ -118,6 +108,45 @@ public partial class SettingsWindow : Window
             check.Unchecked += (_, _) => ApplyFromUi(nameof(AppSettings.LyricsSource));
             _sourceChecks[sourceId] = check;
             SourcePanel.Children.Add(check);
+        }
+    }
+
+    /// <summary>
+    /// 颜色预设色板：每个预设一个小方块，点一下就把它的 <c>#RRGGBB</c> 写进颜色输入框。
+    /// 点击只做"填空"这一件事：颜色框自己的 TextChanged 已经负责校验、刷新预览并落盘，
+    /// 在这里再走一遍同样的逻辑只会多出一条容易和那边跑偏的路径。
+    /// 方块用 Border 而不是 Button：本文件的按钮模板会把背景跟着悬停 / 按下状态改色（对普通按钮是对的），
+    /// 而色块的全部意义就是准确显示那个颜色，任何状态变色都会让人读错颜色。
+    /// The colour-preset palette: one small square per preset, and clicking it writes that <c>#RRGGBB</c> into the colour box.
+    /// The click does exactly one thing — fill the box: the box's own TextChanged already validates, refreshes the preview and
+    /// persists, and repeating that here would add a second path free to drift away from it.
+    /// The squares are Borders rather than Buttons because this file's button template recolours its background on hover and
+    /// press (right for a real button), while a swatch exists precisely to show one colour accurately — any state tint makes
+    /// the colour read wrong.
+    /// </summary>
+    private void BuildColorPresetList()
+    {
+        foreach (var preset in LyricsTextColorPalette.Presets)
+        {
+            var swatch = new Border
+            {
+                Width = 22,
+                Height = 22,
+                CornerRadius = new CornerRadius(4),
+                // 描边是中性灰而不是预设色本身：纯白这类浅色在白色卡片上没有描边就完全看不见边界。
+                // 下拉框 / 按钮用的也是同一个灰，卡片里不会多出一种孤立的中性色。
+                // The hairline is neutral grey rather than the preset's own colour: a light preset such as pure white would be
+                // invisible on the white card without it, and the same grey is what the comboboxes and buttons already use, so
+                // the card gains no stray neutral tone.
+                BorderBrush = new SolidColorBrush(Color.FromRgb(0x8C, 0x8C, 0x8C)),
+                BorderThickness = new Thickness(1),
+                Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(preset.Hex)),
+                Margin = new Thickness(0, 0, 6, 6),
+                Cursor = Cursors.Hand,
+                ToolTip = preset.Name
+            };
+            swatch.MouseLeftButtonDown += (_, _) => ColorBox.Text = preset.Hex;
+            ColorPresetPanel.Children.Add(swatch);
         }
     }
 
@@ -143,6 +172,10 @@ public partial class SettingsWindow : Window
         FixedWidthCheck.Unchecked += (_, _) => ApplyFromUi();
         ShadowCheck.Checked += (_, _) => ApplyFromUi();
         ShadowCheck.Unchecked += (_, _) => ApplyFromUi();
+        FontBoldCheck.Checked += (_, _) => ApplyFromUi();
+        FontBoldCheck.Unchecked += (_, _) => ApplyFromUi();
+        FontItalicCheck.Checked += (_, _) => ApplyFromUi();
+        FontItalicCheck.Unchecked += (_, _) => ApplyFromUi();
         SoftwareRenderCheck.Checked += (_, _) => ApplyFromUi();
         SoftwareRenderCheck.Unchecked += (_, _) => ApplyFromUi();
         CompatibilityModeCheck.Checked += (_, _) => ApplyFromUi();
@@ -151,6 +184,7 @@ public partial class SettingsWindow : Window
         FontSizeSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
         CharSpacingSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
         LineGapSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
+        TrackInfoWidthSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
         UnsungSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
         FixedWidthSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
         MaxWidthSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
@@ -229,12 +263,15 @@ public partial class SettingsWindow : Window
             MouseControlCheck.IsChecked = s.LyricsMouseControlEnabled;
             FixedWidthCheck.IsChecked = s.LyricsFixedWidthEnabled;
             ShadowCheck.IsChecked = s.LyricsTextShadowEnabled;
+            FontBoldCheck.IsChecked = s.LyricsFontBold;
+            FontItalicCheck.IsChecked = s.LyricsFontItalic;
             SoftwareRenderCheck.IsChecked = s.DisableWebView2Gpu;
             CompatibilityModeCheck.IsChecked = s.WebView2CompatibilityMode;
 
             FontSizeSlider.Value = s.LyricsFontSize;
             CharSpacingSlider.Value = s.LyricsCharacterSpacingPercent;
             LineGapSlider.Value = s.LyricsLineGapPercent;
+            TrackInfoWidthSlider.Value = s.LyricsTrackInfoWidthDip;
             UnsungSlider.Value = s.LyricsUnsungOpacityPercent;
             FixedWidthSlider.Value = s.LyricsFixedWidthDip;
             MaxWidthSlider.Value = s.LyricsMaxWidthDip;
@@ -272,7 +309,7 @@ public partial class SettingsWindow : Window
                 _ => 0
             };
 
-            FontFamilyCombo.Text = string.IsNullOrWhiteSpace(s.FontFamily) ? SystemDefaultFontLabel : s.FontFamily;
+            FontFamilyCombo.Text = string.IsNullOrWhiteSpace(s.FontFamily) ? LyricsFontCatalog.SystemDefaultLabel : s.FontFamily;
 
             ColorBox.Text = s.LyricsTextColor;
 
@@ -297,6 +334,13 @@ public partial class SettingsWindow : Window
         FontSizeText.Text = ((int)FontSizeSlider.Value).ToString(CultureInfo.InvariantCulture);
         CharSpacingText.Text = ((int)CharSpacingSlider.Value).ToString(CultureInfo.InvariantCulture);
         LineGapText.Text = ((int)LineGapSlider.Value).ToString(CultureInfo.InvariantCulture);
+        // 曲目信息宽度是唯一一个"0 有意义"的滑块：0 表示自适应，滑到最左边时显示"自适应"而不是光秃秃的 0，
+        // 否则用户会以为这一档是"宽度为零、看不见了"。
+        // The track-info width is the only slider where zero carries meaning: it means automatic, so the far-left position reads
+        // "automatic" instead of a bare 0, which would look like "zero width, nothing visible".
+        TrackInfoWidthText.Text = TrackInfoWidthSlider.Value <= 0
+            ? "自适应"
+            : ((int)TrackInfoWidthSlider.Value).ToString(CultureInfo.InvariantCulture);
         UnsungText.Text = ((int)UnsungSlider.Value).ToString(CultureInfo.InvariantCulture);
         FixedWidthText.Text = ((int)FixedWidthSlider.Value).ToString(CultureInfo.InvariantCulture);
         MaxWidthText.Text = ((int)MaxWidthSlider.Value).ToString(CultureInfo.InvariantCulture);
@@ -338,6 +382,8 @@ public partial class SettingsWindow : Window
         s.LyricsMouseControlEnabled = MouseControlCheck.IsChecked == true;
         s.LyricsFixedWidthEnabled = FixedWidthCheck.IsChecked == true;
         s.LyricsTextShadowEnabled = ShadowCheck.IsChecked == true;
+        s.LyricsFontBold = FontBoldCheck.IsChecked == true;
+        s.LyricsFontItalic = FontItalicCheck.IsChecked == true;
         s.DisableWebView2Gpu = SoftwareRenderCheck.IsChecked == true;
         s.WebView2CompatibilityMode = CompatibilityModeCheck.IsChecked == true;
 
@@ -351,6 +397,15 @@ public partial class SettingsWindow : Window
         s.LyricsFontSize = FontSizeSlider.Value;
         s.LyricsCharacterSpacingPercent = (int)CharSpacingSlider.Value;
         s.LyricsLineGapPercent = (int)LineGapSlider.Value;
+        // 滑块下面是连续的 0..400，而规则只认"0 = 自适应"或 40..400：滑块停在 10/20/30 时按规则夹成 40，
+        // 并把滑块自己推回 40，否则标签会一直显示用户选的 10 而实际生效的是 40。
+        // The slider is continuous 0..400 while the rule only accepts "0 = automatic" or 40..400: a thumb resting on 10/20/30 is
+        // clamped to 40 by the rule, and the slider is pushed back to 40 as well, otherwise the label would keep showing the 10
+        // the user picked while 40 is what actually applies.
+        var trackInfoWidthDip = LyricsTrackInfoWidthPolicy.NormalizeManual(TrackInfoWidthSlider.Value);
+        s.LyricsTrackInfoWidthDip = trackInfoWidthDip;
+        if (Math.Abs(trackInfoWidthDip - TrackInfoWidthSlider.Value) > 0.01)
+            TrackInfoWidthSlider.Value = trackInfoWidthDip;
         s.LyricsUnsungOpacityPercent = (int)UnsungSlider.Value;
         s.LyricsFixedWidthDip = (int)FixedWidthSlider.Value;
         s.LyricsMaxWidthDip = MaxWidthSlider.Value;
@@ -402,7 +457,7 @@ public partial class SettingsWindow : Window
         // looks for a font literally called "system default", falls back to the default, and the setting looks lost.
         var typedFont = FontFamilyCombo.Text?.Trim();
         s.FontFamily = string.IsNullOrEmpty(typedFont) ||
-                       string.Equals(typedFont, SystemDefaultFontLabel, StringComparison.Ordinal)
+                       string.Equals(typedFont, LyricsFontCatalog.SystemDefaultLabel, StringComparison.Ordinal)
             ? null
             : typedFont;
 

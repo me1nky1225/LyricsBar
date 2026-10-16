@@ -2304,17 +2304,33 @@ const lyricsApi = {
     root.style.setProperty("--track-info-gap", collapsed ? "0px" : `${trackInfoGapPx}px`);
   },
 
-  // 悬停浮层的磨砂底。按钮本体是 WPF 原生控件、盖在页面上方，所以"覆盖在歌词上"这件事由宿主移动按钮完成；
-  // 页面这边负责把整条栏的歌词糊掉——底板是满宽的 CSS 层，宽度跟着窗口自动变，宿主只需下发显隐。
+  // 悬停浮层的磨砂底。按钮本体是 WPF 原生控件、盖在页面上方，所以"覆盖在指针下那一块"这件事由宿主移动按钮完成；
+  // 页面这边负责把对应区域糊掉——底板是满宽的 CSS 层，宽度跟着窗口自动变，宿主只需下发区域名。
+  // 区域名只有三种：歌词管两个歌词层（底板白膜只盖 .lyrics-pane，与今天完全一致）、曲目信息管封面与曲目信息块
+  // （歌词保持清晰，且该区域不放白膜——那里的悬停提示由宿主自己画）、none 则什么都不糊。
+  // 白膜始终只盖歌词面板，不随区域改变：filter 只糊内容本身、不动白膜这个覆盖层，两者互不干扰。
   // The frosted layer for the hover overlay. The buttons themselves are WPF controls layered above the page, so "covering the
-  // lyrics" is the host's doing; the page blurs the lyrics across the whole bar. The layer is full-bleed CSS, so it tracks the
-  // window width by itself and the host has nothing to send but visibility.
-  setOverlay(visible) {
+  // part under the pointer" is the host's doing; the page blurs the matching region. The layer is full-bleed CSS, so it tracks
+  // the window width by itself and the host has nothing to send but a region name.
+  // There are only three regions: "lyrics" blurs the two lyric layers (the backdrop film covers only .lyrics-pane, exactly as
+  // before), "info" blurs the cover art and the track-info block while the lyrics stay sharp (and gets no film there — the
+  // hover hint for that region is drawn by the host), and "none" blurs nothing.
+  // The film always covers the lyrics pane and never follows the region: filter blurs the content itself and leaves the film
+  // overlay alone, so the two do not interfere.
+  setOverlay(region) {
     if (!overlayBackdropEl) {
       return;
     }
 
-    layoutEl.classList.toggle("overlay-visible", visible === true);
+    // 老宿主/未重载的旧页面可能还在发 { visible: true }，按旧的"糊歌词"语义兼容，避免重建期间浮层直接失灵。
+    // A stale host (or a page that has not been reloaded) may still send { visible: true }; treat it as the old "blur the
+    // lyrics" meaning so the overlay never breaks during a rebuild.
+    const effectiveRegion = region === "lyrics" || region === true
+      ? "lyrics"
+      : (region === "info" ? "info" : "none");
+
+    layoutEl.classList.toggle("overlay-visible", effectiveRegion === "lyrics");
+    layoutEl.classList.toggle("info-overlay-visible", effectiveRegion === "info");
   },
 
   applyStyle(payload) {
@@ -2344,6 +2360,10 @@ const lyricsApi = {
     requestedFontSize = Number(payload.fontSize) || 13;
     root.style.setProperty("--font-size", `${requestedFontSize}px`);
     root.style.setProperty("--font-weight", window.taskbarLyricsState.normalizeWeight(payload.fontWeight));
+    // 字体样式同样走 CSS 变量：粗体与斜体由同一次样式下发决定，变量换掉后歌词与曲目信息一起变，不必逐元素设置。
+    // Font style rides the same CSS-variable path as weight: bold and italic arrive in one style push, and swapping the
+    // variable restyles the lyrics and the track info together instead of touching each element.
+    root.style.setProperty("--font-style", payload.fontItalic === true ? "italic" : "normal");
     // 字距用 em 下发：每一行按自己的字号解析，因此当前行、第二行与翻译行会等比缩放。
     // Character spacing is sent in em: every line resolves it against its own font size, so the current line, the second line,
     // and the translation row all scale proportionally.
@@ -2472,7 +2492,9 @@ window.taskbarLyrics = {
         lyricsApi.setTrackInfo(payload?.title, payload?.artist, payload?.width);
         break;
       case "overlay":
-        lyricsApi.setOverlay(payload?.visible);
+        // 宿主现在下发 { region: "none" | "lyrics" | "info" }；旧的 { visible: true } 由 setOverlay 内部兼容。
+        // The host now sends { region: "none" | "lyrics" | "info" }; the old { visible: true } is tolerated inside setOverlay.
+        lyricsApi.setOverlay(payload?.region ?? payload?.visible);
         break;
       case "spectrum":
         lyricsApi.setSpectrum(payload);

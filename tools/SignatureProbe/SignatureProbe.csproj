@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    特征码位置通道的可行性自检。它刻意不引用主工程：要验证的正是"上游那套特征码 + 固定偏移"能不能在
+    当前这版 cloudmusic.dll 上直接用，所以它自带最小化的只读进程内存读取，避免主工程里的抽象掩盖细节。
+    Feasibility probe for the signature-based position channel. It deliberately does NOT reference the main project:
+    what it must prove is whether upstream's signatures plus fixed offsets still work against the user's current
+    cloudmusic.dll, so it carries its own minimal read-only process-memory reader.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>SignatureProbe</AssemblyName>
+    <RootNamespace>SignatureProbe</RootNamespace>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+</Project>

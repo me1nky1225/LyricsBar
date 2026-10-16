@@ -6,10 +6,12 @@ using LyricsBar.Classes.Utils;
 namespace LyricsBar.Classes.Services;
 
 /// <summary>
-/// 网易云音乐的内存播放位置通道。实测（2026-10-15）：网易云的 SMTC 时间轴恒为零——Start/End/Position/MinSeek/MaxSeek
-/// 全是 0，LastUpdatedTime 是 1601-01-01——但它的播放位置确实存在于 <c>cloudmusic.exe</c> 的私有内存里，是一串
-/// 以秒为单位、约每秒更新一次、按 1 倍速前进的 double，而且**跟着用户拖动进度条一起跳**。本项目不采用上游那种
-/// "按网易云版本记偏移量"的做法（版本一更新就失效），而是每次启动时现场扫描：
+/// 网易云音乐的内存播放位置通道。2026-10-14 实测：网易云上报的 SMTC 时间轴 Start/End/Position/MinSeek/MaxSeek
+/// 几乎全是 0、LastUpdatedTime 是 1601-01-01；2026-10-15/16 的真机日志进一步表明它**并不是恒零**，而是会周期性
+/// 塌回 0–1.5 秒（同一时刻本通道读到 288.2 秒，上报值却在 0.4 / 3.4 / 49.2 / 33.5 之间乱跳）——所以播放位置
+/// 不能靠 SMTC，而它确实存在于 <c>cloudmusic.exe</c> 的私有内存里，是一串以秒为单位、约每秒更新一次、按 1 倍速
+/// 前进的 double，而且**跟着用户拖动进度条一起跳**。本项目不采用上游那种"按网易云版本记偏移量"的做法
+/// （版本一更新就失效），而是每次启动时现场扫描：
 /// <list type="number">
 ///   <item>把私有内存里所有"看起来像秒数"的 double 收集起来；</item>
 ///   <item>隔两秒再扫一遍，只留"恰好前进了这两秒"的地址；</item>
@@ -18,16 +20,39 @@ namespace LyricsBar.Classes.Services;
 /// </list>
 /// 扫描约 1-2 秒，之后每次轮询只是十几次 8 字节读取，代价可以忽略。读不到（权限被拒、网易云没运行、版本换成了
 /// 别的位置表示）就返回 false，调用方退回本地计时——这个通道是"锦上添花"，不允许它把歌词栏搞坏。
-/// The in-memory playback-position channel for NetEase Cloud Music. Measured on 2026-10-15: NetEase's SMTC timeline is
-/// permanently zero (Start/End/Position/MinSeek/MaxSeek all 0, LastUpdatedTime 1601-01-01), yet its playback position really
-/// does live in cloudmusic.exe's private memory as a seconds-valued double updated about once a second at 1x speed, and it
-/// **follows the user dragging the seek bar**. This project rejects the upstream approach of recording per-NetEase-version
-/// offsets (one update breaks it) and instead scans for it on every start: collect every double that looks like a second
-/// count, rescan two seconds later keeping only the addresses that advanced by exactly those two seconds, cluster the ones
-/// that agree with each other, re-verify that handful two seconds after that, and from then on read those dozen addresses
-/// every 400 ms and take the leading value near their median. The scan costs a second or two; each later poll is a dozen
-/// eight-byte reads. Anything unreadable (rights refused, NetEase not running, a version storing the position differently)
-/// returns false and the caller falls back to the local clock: this channel is a bonus and is never allowed to break the bar.
+/// 锁定之后还有 <see cref="MemoryChannelWatchdog"/> 兜底：锁定值必须与本地计时同步推进，持续不符就作废重扫
+/// （"读得到值"不等于"锁对了地址"，真机日志里 address 数在 3–113 之间乱跳、而失效判据一次都没触发过）。
+/// <para>
+/// v1.4.8 起扫描降为**兜底**，首选是 <see cref="NeteaseSignatureChannel"/>：在 <c>cloudmusic.dll</c> 的 <c>.text</c>
+/// 里按上游那两条特征码直接读出播放器自己的位置、时长、状态（`tools/SignatureProbe` 已实测命中，见
+/// <c>HANDOFF-NETEASE-SYNC.md</c> §3.8）。上面这套扫描分不出"当前播放位置"和"随便一个按 1 倍速前进的计时器"
+/// ——真机日志里它锁到过一个从当天 12:39 起算的全局计时器（位置 4800 秒、换歌不归零、几千个副本），特征码通道
+/// 没有这个歧义，而且它还能给出真实时长。特征码失效（网易云升级、读失败累计）时自动退回本文件这条扫描通道。
+/// From v1.4.8 the scan is the **fallback** and <see cref="NeteaseSignatureChannel"/> comes first: it reads the player's
+/// own position, duration and status straight out of cloudmusic.dll's .text through upstream's two signatures (measured
+/// to match, see HANDOFF-NETEASE-SYNC.md §3.8). The scan above cannot tell "the current playback position" from "any
+/// timer advancing at 1x" — the real-hardware log shows it locking a global timer started at 12:39 that day (position
+/// 4800 s, never reset on a track change, thousands of copies) — while the signature channel has no such ambiguity and
+/// reports the real duration too. When the signatures fail (a NetEase update, too many read failures) the scan channel
+/// in this file takes over again.
+/// </para>
+/// The in-memory playback-position channel for NetEase Cloud Music. Measured 2026-10-14: the SMTC timeline NetEase
+/// reports is almost entirely zero (Start/End/Position/MinSeek/MaxSeek all 0, LastUpdatedTime 1601-01-01); the
+/// 2026-10-15/16 real-hardware logs further show it is **not** permanently zero — it periodically collapses back to
+/// 0–1.5 s (at one instant this channel read 288.2 s while the reported value bounced between 0.4 / 3.4 / 49.2 /
+/// 33.5) — so the playback position cannot come from SMTC. It really does live in cloudmusic.exe's private memory as a
+/// seconds-valued double updated about once a second at 1x speed, and it **follows the user dragging the seek bar**.
+/// This project rejects the upstream approach of recording per-NetEase-version offsets (one update breaks it) and
+/// instead scans for it on every start: collect every double that looks like a second count, rescan two seconds later
+/// keeping only the addresses that advanced by exactly those two seconds, cluster the ones that agree with each other,
+/// re-verify that handful two seconds after that, and from then on read those dozen addresses every 400 ms and take the
+/// leading value near their median. The scan costs a second or two; each later poll is a dozen eight-byte reads.
+/// Anything unreadable (rights refused, NetEase not running, a version storing the position differently) returns false
+/// and the caller falls back to the local clock: this channel is a bonus and is never allowed to break the bar. Past
+/// the lock there is also MemoryChannelWatchdog as a backstop: the locked value has to advance in step with the local
+/// clock, and a persistent disagreement means a rescan — "it reads values" is not the same as "it locked the right
+/// addresses" (the address count bounced between 3 and 113 in the real-hardware logs while the failure test never
+/// fired once).
 /// </summary>
 internal sealed class NeteasePositionService : IDisposable
 {
@@ -48,6 +73,16 @@ internal sealed class NeteasePositionService : IDisposable
 
     /// <summary>锁定之后的轮询间隔。位置本身约每秒更新一次，400 毫秒足够顺滑。</summary>
     private const int PollIntervalMilliseconds = 400;
+
+    /// <summary>
+    /// 特征码通道的轮询间隔。它每拍只读几个字段，可以比扫描通道密得多：那个 double 是连续量（真机实测一秒里
+    /// 前进 1.000 秒、小数位在变），100 毫秒一拍意味着"擦亮"几乎跟着真实播放位置走，不再依赖外推。
+    /// Poll interval for the signature channel. It reads a handful of fields per poll, so it can be far denser than the
+    /// scan channel: that double is continuous (measured to advance by exactly 1.000 s over one second, with the
+    /// fractional digits moving), so a 100 ms poll makes the wipe follow the real playback position instead of leaning on
+    /// extrapolation.
+    /// </summary>
+    private const int SignaturePollIntervalMilliseconds = 100;
 
     /// <summary>连续这么多次轮询都读不到候选值，就认为地址失效（换版本、进程重启），重新扫描。</summary>
     private const int MaximumPollFailures = 4;
@@ -104,6 +139,48 @@ internal sealed class NeteasePositionService : IDisposable
     private DateTimeOffset _sampledAt;
     private bool _hasPosition;
 
+    /// <summary>看门狗请求作废当前锁定（见 <see cref="InvalidateChannel"/>）。轮询循环每拍开头检查这个标志。</summary>
+    private volatile bool _invalidateRequested;
+
+    /// <summary>作废原因，只用于日志。与 <see cref="_invalidateRequested"/> 一起由看门狗写入。</summary>
+    private volatile string? _invalidateReason;
+
+    /// <summary>作废后到允许重新扫描的冷却毫秒数。与 <see cref="_invalidateRequested"/> 一起写入。</summary>
+    private volatile int _invalidateCooldownMilliseconds;
+
+    /// <summary>特征码通道，首选的位置来源（见类注释）。/ The signature channel, the preferred position source.</summary>
+    private readonly NeteaseSignatureChannel _signature = new();
+
+    /// <summary>当前位置是不是特征码通道给的。false 表示这一拍是扫描通道（或两者都没有）。</summary>
+    private bool _usingSignature;
+
+    /// <summary>特征码通道顺带读到的时长（秒），0 表示本拍没读到。受 <see cref="_gate"/> 保护。</summary>
+    private double _signatureDurationSeconds;
+
+    /// <summary>特征码通道顺带读到的播放状态。受 <see cref="_gate"/> 保护。</summary>
+    private bool _signatureIsPlaying;
+
+    /// <summary>已经记过日志的特征码歌曲 id，避免同一首歌每秒重复一行。受 <see cref="_gate"/> 保护。</summary>
+    private string _signatureSongId = string.Empty;
+
+    /// <summary>下一次允许读歌曲 id 的时刻（<see cref="Environment.TickCount64"/>），一秒最多一次。</summary>
+    private long _nextSongIdPollTicks;
+
+    /// <summary>读歌曲 id 的最小间隔（毫秒）。/ Minimum interval between song-id reads, in milliseconds.</summary>
+    private const int SongIdPollIntervalMilliseconds = 1000;
+
+    /// <summary>
+    /// 健全性退避的冷却：锁定"能读但不像当前曲目的位置"（全局计时器、换歌不归零）时，立即重扫只会再锁一次垃圾
+    /// ——真机日志里 13:58–14:02 就是这样每 10 几秒扫一次、每次锁几千个垃圾地址，白烧 430MB 的读取。
+    /// 等半分钟再扫，期间本地计时顶替（它换歌归零、跟歌 1 倍速，比垃圾位置靠谱得多）。
+    /// The cool-down after a sanity rejection: when the lock "reads but does not look like this track's position" (a
+    /// global timer, never resetting on a track change), rescanning at once only locks garbage again — the real-hardware
+    /// log shows exactly that between 13:58 and 14:02, one scan every ten-odd seconds each burning a 430 MB read for a
+    /// few thousand garbage addresses. Waiting half a minute instead lets the local clock stand in (it zeroes on a track
+    /// change and follows at 1x, far more trustworthy than a garbage position).
+    /// </summary>
+    private const int SanityRescanCooldownMilliseconds = 30_000;
+
     /// <summary>
     /// 取当前播放位置（秒）与采样时刻。来源不是网易云、或还没扫描出结果时返回 false。
     /// 采样时刻要一并返回：上层的 <see cref="TaskbarExperiencePolicy"/> 会以它为基准按 1 倍速外推，
@@ -153,6 +230,70 @@ internal sealed class NeteasePositionService : IDisposable
         }
     }
 
+    /// <summary>
+    /// 位置是不是特征码通道给的。上层据此跳过"只对扫描通道成立"的健全性检查与看门狗：那两条判据是为扫描通道的
+    /// 歧义设计的（位置与本地计时相差几分钟 = 锁到了全局计时器），而特征码读到的是真位置，中途开始播放时本来
+    /// 就会与本地计时相差一大截，硬套过去反而会把正确的位置判成垃圾。
+    /// Whether the position comes from the signature channel. Callers use it to skip the sanity check and watchdog that
+    /// exist only for the scan channel's ambiguity (a position minutes away from the local clock means a locked global
+    /// timer); the signature channel reads the real position, and starting playback mid-track legitimately puts it far
+    /// from the local clock, so applying those tests would reject a correct value.
+    /// </summary>
+    internal bool IsSignatureChannel
+    {
+        get
+        {
+            lock (_gate)
+                return _usingSignature;
+        }
+    }
+
+    /// <summary>
+    /// 特征码通道顺带给出的曲目信息：真实时长与播放状态。返回 false 表示本拍没有这些信息（走的是扫描通道，
+    /// 或者特征码通道刚失效），调用方应当保持原来的行为。
+    /// Track information the signature channel happens to provide: the real duration and the play status. False means this
+    /// poll has neither (the scan channel is in use, or the signatures just failed) and the caller should behave as before.
+    /// </summary>
+    internal bool TryGetTrackInfo(out double durationSeconds, out bool isPlaying)
+    {
+        lock (_gate)
+        {
+            durationSeconds = _signatureDurationSeconds;
+            isPlaying = _signatureIsPlaying;
+            return _usingSignature;
+        }
+    }
+
+    /// <summary>
+    /// 请求作废当前锁定并重新扫描。供 <see cref="MemoryChannelWatchdog"/> 与 <see cref="MemoryLockSanityPolicy"/>
+    /// 调用：地址还能读到值、值也落在秒数区间里，读失败判据抓不到，但锁定值的推进速度与本地计时长期不符，
+    /// 或位置根本不像当前曲目的（换歌不归零、与本地计时相差几分钟——全局计时器的形状）。真正的作废在轮询循环里
+    /// 执行：地址清单是它的局部状态，这里只留标志，避免跨线程去动循环手里的 <c>List</c>。
+    /// Requests that the current lock be dropped and re-scanned. Called by MemoryChannelWatchdog and
+    /// MemoryLockSanityPolicy: the addresses still read and the values still land in the seconds range, so the
+    /// read-failure test cannot catch it, yet the locked value's advance rate has long disagreed with the local clock,
+    /// or the value does not look like this track's position at all (never resets on a track change, minutes away from
+    /// the clock — the shape of a global timer). The actual drop happens inside the poll loop: the address list is its
+    /// local state, so all this leaves behind is a flag rather than touching another thread's List.
+    /// </summary>
+    /// <param name="reason">作废原因，只用于日志。/ The reason, used in the log line only.</param>
+    /// <param name="sanityBackoff">
+    /// true 表示"锁定能读但不可信"：等 <see cref="SanityRescanCooldownMilliseconds"/> 再扫，不吃换歌那条 1.5 秒短冷却
+    /// ——立即重扫只会再锁一次垃圾（真机 13:58–14:02 每 10 几秒白扫一次 430MB）。false 用于推进速度类作废，行为同前。
+    /// True means "the lock reads but cannot be trusted": wait SanityRescanCooldownMilliseconds before rescanning
+    /// instead of the 1.5 s track-change cool-down, because rescanning at once only locks garbage again (the real
+    /// machine burned a 430 MB scan every ten-odd seconds between 13:58 and 14:02). False is for advance-rate
+    /// rejections and behaves as before.
+    /// </param>
+    internal void InvalidateChannel(string reason, bool sanityBackoff = false)
+    {
+        _invalidateReason = reason;
+        _invalidateCooldownMilliseconds = sanityBackoff
+            ? SanityRescanCooldownMilliseconds
+            : RescanAfterLossMilliseconds;
+        _invalidateRequested = true;
+    }
+
     private void EnsureLoop()
     {
         lock (_gate)
@@ -183,9 +324,100 @@ internal sealed class NeteasePositionService : IDisposable
                     reader?.Dispose();
                     reader = null;
                     addresses.Clear();
+                    _signature.Reset();
+                    _usingSignature = false;
+                    ClearSignatureSongId();
                     SetPosition(0, default, false);
                     await Task.Delay(2000, token).ConfigureAwait(false);
                     continue;
+                }
+
+                // 看门狗请求作废（锁定值的推进速度与本地计时长期不符，或位置不像当前曲目）。地址清单是下面的
+                // 局部状态，只能在这里清。健全性退避的作废等 30 秒再扫（立即重扫只会再锁一次垃圾）。
+                // A watchdog invalidation request (the locked value's advance rate has long disagreed with the local
+                // clock, or the value does not look like this track's position). The address list is local state below,
+                // so this is the only place it can be cleared. Sanity rejections wait thirty seconds before rescanning
+                // (rescanning at once only locks garbage again).
+                if (_invalidateRequested)
+                {
+                    _invalidateRequested = false;
+                    var reason = _invalidateReason;
+                    var cooldown = _invalidateCooldownMilliseconds;
+                    _invalidateReason = null;
+
+                    if (addresses.Count > 0)
+                    {
+                        failures = 0;
+                        Log.Info("Media", $"网易云内存通道已失效（{reason}），将重新扫描。");
+                        addresses.Clear();
+                        nextScanAllowed = Environment.TickCount64 + cooldown;
+                    }
+                }
+
+                // 特征码通道优先：读的是播放器自己的字段，不存在"锁到全局计时器"这种歧义，还能给出真实时长。
+                // 它读不到时（网易云没运行、升级后特征码失效、读失败累计）返回 false，下面照旧走内存扫描通道。
+                // The signature channel comes first: it reads the player's own fields, so "locked a global timer" cannot
+                // happen, and it reports the real duration. When it cannot read (NetEase not running, signatures
+                // invalidated by an update, too many read failures) it returns false and the scan below proceeds as before.
+                if (_signature.TryRead(out var signature))
+                {
+                    if (!_usingSignature)
+                    {
+                        _usingSignature = true;
+                        Log.Info("Media", $"网易云位置改用特征码通道（{_signature.ModuleDescription}），不再扫描内存。");
+                    }
+
+                    lock (_gate)
+                    {
+                        _signatureDurationSeconds = signature.DurationSeconds;
+                        _signatureIsPlaying = signature.IsPlaying;
+                    }
+
+                    SetPosition(signature.Position, signature.SampledAt, true);
+
+                    // 可观测性（v1.4.9）：把播放器自己记的歌曲 id 写进日志。这是"到底是不是同一首歌"最硬的凭据，
+                    // 下一版把它接进取词路径后就不用再赌队列文件里的歌手字符串；现在先让它可见。
+                    // Observability (v1.4.9): put the song id the player itself keeps into the log. It is the hardest evidence
+                    // for "is this really the same track"; the next version feeds it into retrieval, and for now it is simply
+                    // visible. Polled at most once a second — an id change never needs to be seen faster than that.
+                    var nowTicks = Environment.TickCount64;
+                    if (nowTicks >= _nextSongIdPollTicks)
+                    {
+                        _nextSongIdPollTicks = nowTicks + SongIdPollIntervalMilliseconds;
+                        if (_signature.TryGetSongId(out var songId))
+                        {
+                            ReportSignatureSongId(songId);
+                        }
+                    }
+
+                    // 特征码能用就别白养着扫描通道的句柄和地址清单：多读一个进程的内存没有好处。
+                    // While the signatures work there is no reason to keep the scan channel's handle and addresses alive.
+                    if (addresses.Count > 0)
+                    {
+                        Log.Info("Media", $"网易云内存扫描通道已停用（特征码通道可用），释放 {addresses.Count} 个地址。");
+                        addresses.Clear();
+                        failures = 0;
+                    }
+
+                    if (reader is not null)
+                    {
+                        reader.Dispose();
+                        reader = null;
+                    }
+
+                    await Task.Delay(SignaturePollIntervalMilliseconds, token).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (_usingSignature)
+                {
+                    _usingSignature = false;
+                    // 通道交还给扫描通道时把 id 记忆清掉：下次特征码重新附加、同一首歌也要再记一行，
+                    // 免得"通道断过一截"这件事在日志里看不出来。
+                    // The id memo is dropped when the channel hands over to the scan channel, so a re-attach logs the id again
+                    // and a gap in the channel stays visible in the log.
+                    ClearSignatureSongId();
+                    Log.Info("Media", "网易云特征码通道读不到位置，退回内存扫描通道。");
                 }
 
                 if (addresses.Count == 0)
@@ -262,6 +494,34 @@ internal sealed class NeteasePositionService : IDisposable
             _position = seconds;
             _sampledAt = sampledAt;
             _hasPosition = hasPosition;
+        }
+    }
+
+    /// <summary>
+    /// 歌曲 id 换了一首才记一行日志；同一首重复上报不写。
+    /// Logs one line only when the song id changes to a different track; repeats of the same id write nothing.
+    /// </summary>
+    private void ReportSignatureSongId(string songId)
+    {
+        lock (_gate)
+        {
+            if (string.Equals(songId, _signatureSongId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _signatureSongId = songId;
+        }
+
+        Log.Info("Media", $"网易云特征码通道读到歌曲 id: {songId}（播放器自己记的 id）。");
+    }
+
+    /// <summary>忘掉已记录的歌曲 id，下一次读到同一首也会重新记一行。/ Forgets the logged song id so the next read logs again.</summary>
+    private void ClearSignatureSongId()
+    {
+        lock (_gate)
+        {
+            _signatureSongId = string.Empty;
         }
     }
 
@@ -585,6 +845,8 @@ internal sealed class NeteasePositionService : IDisposable
 
     public void Dispose()
     {
+        _signature.Dispose();
+
         CancellationTokenSource? cancellation;
         lock (_gate)
         {

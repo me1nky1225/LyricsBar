@@ -1,5 +1,23 @@
 namespace LyricsBar.Classes.Services.Lyrics;
 
+/// <summary>
+/// 鼠标悬停时被磨砂的那一部分。栏里分成两块：封面 + 曲目信息是一块，歌词是另一块，
+/// 指针在哪一块上就只糊哪一块，另一块保持清晰。
+/// Which part is frosted while the pointer hovers. The bar has two parts — the artwork plus the track-info block, and the
+/// lyrics — and only the one under the pointer is blurred while the other keeps its normal look.
+/// </summary>
+public enum LyricsOverlayRegion
+{
+    /// <summary>指针不在栏上，什么都不糊。/ The pointer is not over the bar; nothing is blurred.</summary>
+    None,
+
+    /// <summary>指针在封面与曲目信息那一块上。/ The pointer is over the artwork and track-info part.</summary>
+    Info,
+
+    /// <summary>指针在歌词那一块上。/ The pointer is over the lyrics part.</summary>
+    Lyrics
+}
+
 /// <summary>歌词视图的外观输入。与具体渲染实现无关。/ Appearance input for the lyrics view, independent of the renderer.</summary>
 public sealed record LyricsWebStyle(
     string FontFamily,
@@ -17,7 +35,8 @@ public sealed record LyricsWebStyle(
     string WordScanOverlayColor,
     string TextShadow,
     bool ShowCover = false,
-    double CoverSizeDip = 34);
+    double CoverSizeDip = 34,
+    bool FontItalic = false);
 
 /// <summary>
 /// 歌词渲染器的公共面。宿主（<c>TaskbarLyricsWindow</c>）只认这一层，
@@ -54,8 +73,12 @@ public interface ILyricsRenderer : IDisposable
     /// <summary>下发封面右侧那块独立的曲目信息（曲名 / 歌手）；两条都为空即收起。/ Pushes the standalone track-info block; two empty strings collapse it.</summary>
     void SetTrackInfo(string title, string artist, double widthDip);
 
-    /// <summary>悬停浮层的显隐。/ Visibility of the hover overlay.</summary>
-    void SetOverlay(bool visible);
+    /// <summary>
+    /// 悬停磨砂作用在哪一块上。宿主按指针落在哪一块决定，渲染器只负责糊对应的那几个元素。
+    /// Which part the hover frost applies to. The host decides from where the pointer is; the renderer only has to blur the
+    /// elements that belong to that part.
+    /// </summary>
+    void SetOverlay(LyricsOverlayRegion region);
 
     /// <summary>呈现一帧歌词。/ Presents one lyric frame.</summary>
     void Present(LyricsPresentationFrame frame, bool animateTransition);

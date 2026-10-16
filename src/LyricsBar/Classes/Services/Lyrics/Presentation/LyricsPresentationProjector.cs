@@ -44,10 +44,21 @@ public sealed record LyricsPresentationFrame(
 /// </summary>
 public static class LyricsPresentationProjector
 {
+    /// <param name="snapshot">媒体快照。/ The media snapshot.</param>
+    /// <param name="settings">当前设置。/ The current settings.</param>
+    /// <param name="now">当前时间（用于外推位置）。/ The current time, used to extrapolate the position.</param>
+    /// <param name="cursor">
+    /// 选行迟滞器。传入时行号与擦亮位置都不回退（见 <see cref="LyricLineCursor"/>）；不传则保持"纯函数"的旧行为，
+    /// 自检与探针走这条路。窗口必须持有同一个实例，迟滞才有意义。
+    /// The line-selection hysteresis cursor. When supplied, neither the line index nor the scan position steps back (see
+    /// <see cref="LyricLineCursor"/>); when omitted the old pure behaviour is kept, which is what diagnostics and the probes
+    /// use. The window has to own one instance for the hysteresis to mean anything.
+    /// </param>
     public static LyricsPresentationFrame Project(
         MediaSnapshot snapshot,
         AppSettings settings,
-        DateTimeOffset now)
+        DateTimeOffset now,
+        LyricLineCursor? cursor = null)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
         ArgumentNullException.ThrowIfNull(settings);
@@ -89,8 +100,15 @@ public static class LyricsPresentationProjector
             return BuildEmptyFrame(snapshot);
         }
 
+        var trackId = BuildTrackId(snapshot);
         var position = TaskbarExperiencePolicy.GetPosition(snapshot, now);
-        var index = LyricLineIndexPolicy.FindIndex(lines, position);
+        // 选行走迟滞器（窗口里那份）：行号与擦亮位置都不回退，避免位置抖动把画面往回带。
+        // Line selection goes through the cursor the window owns, so neither the index nor the scan position steps back when
+        // the position jitters. Diagnostics and the probes pass no cursor and keep the pure behaviour.
+        var lineSelection = cursor is null
+            ? new LyricLineSelection(LyricLineIndexPolicy.FindIndex(lines, position), position)
+            : cursor.Resolve(trackId, lines, position);
+        var index = lineSelection.Index;
         if (index < 0)
         {
             // 位置早于首行（前奏）时，把首行当作"即将唱到"显示，而不是让整条歌词栏空着。
@@ -147,12 +165,15 @@ public static class LyricsPresentationProjector
         // lyric line index and needs no pinning.
         var emittedLineIndex = index;
 
-        var lineProgress = ResolveLineProgress(currentLine, position);
+        // 行内进度与逐字擦亮用的是迟滞后的位置：同一行里它只增不减，擦亮才不会往回跳。
+        // Line and syllable progress use the hysteretic position: inside one line it only moves forward, so the highlight
+        // cannot jump back.
+        var lineProgress = ResolveLineProgress(currentLine, lineSelection.ScanSeconds);
         // 逐字擦亮作用于主行，而主行始终是当前歌词行，所以只要有逐字时间轴就开着。
         // Syllable highlighting belongs to the main row, which is always the current lyric line, so it stays on whenever a
         // syllable timeline exists.
         var wordScanProgress = settings.LyricsSyllableHighlightEnabled
-            ? LyricHighlightPolicy.ResolveProgress(currentLine, position)
+            ? LyricHighlightPolicy.ResolveProgress(currentLine, lineSelection.ScanSeconds)
             : null;
 
         // 繁简转换落在"文本流向呈现层的最后一步"：当前行、下一句、译文与下一句译文都走同一个设置，
@@ -165,7 +186,7 @@ public static class LyricsPresentationProjector
 
         return new LyricsPresentationFrame(
             true,
-            BuildTrackId(snapshot),
+            trackId,
             emittedLineIndex,
             LyricsChineseConverter.Convert(mainText, conversion),
             LyricsChineseConverter.Convert(secondaryText, conversion),

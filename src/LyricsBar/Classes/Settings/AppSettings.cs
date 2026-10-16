@@ -1,3 +1,5 @@
+using LyricsBar.Classes.Services.Lyrics.Presentation;
+
 namespace LyricsBar.Classes.Settings;
 
 /// <summary>第二行歌词的内容来源。/ Source of the second lyric row.</summary>
@@ -148,7 +150,13 @@ public sealed class AppSettings
     /// <summary>第二行来源顺序；null 表示未配置，按默认顺序。/ Second-row source order; null means unconfigured and follows the default order.</summary>
     public LyricsSecondaryLineSettings LyricsSecondaryLine { get; set; } = LyricsSecondaryLineSettings.Default;
 
-    /// <summary>是否启用逐字擦亮。/ Whether syllable-level highlighting is enabled.</summary>
+    /// <summary>
+    /// 是否启用逐字擦亮。有真实逐字时间轴时按字擦亮；只有行级歌词时按整行时长平均推算（v1.4.10 起），
+    /// 让每一句都有扫过去的过程，而不是"有的歌擦亮、有的歌整行一次性点亮"。
+    /// Whether syllable-level highlighting is enabled. A real word timeline highlights character by character; line-level
+    /// lyrics get a wipe spread evenly across the line window (since v1.4.10) so every line sweeps instead of some songs
+    /// lighting up all at once.
+    /// </summary>
     public bool LyricsSyllableHighlightEnabled { get; set; } = true;
 
     /// <summary>
@@ -211,6 +219,20 @@ public sealed class AppSettings
 
     /// <summary>歌词字体族名；null 表示跟随系统消息字体。/ Lyric font family name; null follows the system message font.</summary>
     public string? FontFamily { get; set; }
+
+    /// <summary>
+    /// 歌词是否加粗。加粗作用在两行歌词、以及曲目信息块的曲名/歌手那一行上，与网页版的 <c>--font-weight</c> 是同一件事。
+    /// Whether the lyrics are bold. It applies to both lyric rows and to the track-info title/artist, and it is the same thing
+    /// as the web side's <c>--font-weight</c>.
+    /// </summary>
+    public bool LyricsFontBold { get; set; }
+
+    /// <summary>
+    /// 歌词是否使用斜体。斜体靠字体自身的 italic 外形实现，机器上没装斜体外形时系统会做合成倾斜，仍然可读。
+    /// Whether the lyrics use italics. The slant comes from the family's italic face; when a machine has none installed the
+    /// system synthesises an oblique, which stays readable.
+    /// </summary>
+    public bool LyricsFontItalic { get; set; }
 
     /// <summary>是否在任务栏歌词栏上显示播放进度条。/ Whether a playback progress bar is drawn inside the taskbar bar.</summary>
     public bool LyricsProgressBarEnabled { get; set; } = true;
@@ -319,6 +341,17 @@ public sealed class AppSettings
     public bool LyricsTrackInfoBlockEnabled { get; set; } = true;
 
     /// <summary>
+    /// 曲目信息块的宽度（DIP）。0 表示自适应：按曲名与歌手两行里更长的那条量出来，最长不超过
+    /// <see cref="LyricsTrackInfoWidthPolicy.AutoMaximumDip"/>。给一个正值就是用户手动定的宽度，文字排不下时按省略号截断。
+    /// 手动宽度是有意留的：曲名长短差得很远时，自适应会让整条栏随歌曲忽宽忽窄，手动定宽可以把栏宽钉死。
+    /// Width of the track-info block in DIP. Zero means automatic: measured from whichever of the title/artist rows is longer,
+    /// capped at <see cref="TrackInfoWidthLimits.AutoMaximumDip"/>. A positive value is a width the user fixed, and text that
+    /// does not fit is ellipsized. The manual width is deliberate: with wildly different title lengths the automatic width makes
+    /// the whole bar jump between widths from song to song, while a fixed one pins it down.
+    /// </summary>
+    public double LyricsTrackInfoWidthDip { get; set; }
+
+    /// <summary>
     /// 归一化：把越界或不合理的取值收敛回合法区间，保证渲染层拿到的一定是可用值。
     /// Normalizes out-of-range or nonsensical values so the rendering layer always receives usable ones.
     /// </summary>
@@ -336,6 +369,7 @@ public sealed class AppSettings
         if (!Enum.IsDefined(LyricsMatchStrictness)) LyricsMatchStrictness = LyricsMatchStrictness.Balanced;
         if (!Enum.IsDefined(LyricsRendererEngine)) LyricsRendererEngine = LyricsRendererEngine.Native;
         LyricsFontSize = double.IsFinite(LyricsFontSize) ? Math.Clamp(LyricsFontSize, 8, 48) : 14;
+        LyricsTrackInfoWidthDip = LyricsTrackInfoWidthPolicy.NormalizeManual(LyricsTrackInfoWidthDip);
         LyricsBarHeight = double.IsFinite(LyricsBarHeight) ? Math.Clamp(LyricsBarHeight, 24, 96) : 40;
         LyricsMaxWidthDip = double.IsFinite(LyricsMaxWidthDip) ? Math.Clamp(LyricsMaxWidthDip, 120, 2000) : 640;
         TaskbarOffsetDip = double.IsFinite(TaskbarOffsetDip) ? Math.Clamp(TaskbarOffsetDip, 0, 2000) : 0;
@@ -366,6 +400,8 @@ public sealed class AppSettings
         LyricsBarHeight = LyricsBarHeight,
         LyricsMaxWidthDip = LyricsMaxWidthDip,
         FontFamily = FontFamily,
+        LyricsFontBold = LyricsFontBold,
+        LyricsFontItalic = LyricsFontItalic,
         LyricsProgressBarEnabled = LyricsProgressBarEnabled,
         LyricsTextColor = LyricsTextColor,
         LyricsTextShadowEnabled = LyricsTextShadowEnabled,
@@ -376,6 +412,7 @@ public sealed class AppSettings
         LyricsShowTrackInfoWhenNoLyrics = LyricsShowTrackInfoWhenNoLyrics,
         LyricsMouseControlEnabled = LyricsMouseControlEnabled,
         LyricsTrackInfoBlockEnabled = LyricsTrackInfoBlockEnabled,
+        LyricsTrackInfoWidthDip = LyricsTrackInfoWidthDip,
         LyricsCoverArtEnabled = LyricsCoverArtEnabled,
         LyricsBarAlignment = LyricsBarAlignment,
         TaskbarOffsetDip = TaskbarOffsetDip

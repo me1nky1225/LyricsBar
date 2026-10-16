@@ -17,17 +17,17 @@
         Visibility="Collapsed">
 
     <!--
-      窗口本体只有三样东西：WebView2 歌词宿主、右侧的切歌按钮、底部一条播放进度。
-      所有排版（换行、切行、逐字擦亮）都在 Web 端完成，WPF 只负责尺寸、可见性、进度条与切歌按钮——
+      窗口本体只有四样东西：歌词宿主、右侧的切歌按钮、悬停时压在曲目信息块上的一句提示、底部一条播放进度。
+      所有排版（换行、切行、逐字擦亮）都在渲染器里完成，WPF 只负责尺寸、可见性、进度条、切歌按钮与那句提示——
       与原项目 TaskBarMediaControl 的分工一致。
       切歌按钮做成 WPF 原生控件而不是画在网页里：网页里画需要一条 JS → C# 的回传通道，
       而歌词页目前是单向的（只有 C# 推给网页）；原生按钮点击就是普通的路由事件，少一层跨端消息。
-      The window holds exactly three things: the WebView2 lyric host, the skip buttons on the right, and a playback-progress
-      strip along the bottom. All typography (wrapping, line transitions, syllable highlighting) happens on the web side; WPF
-      owns only sizing, visibility, the progress strip, and the skip buttons — the same split as the original's
-      TaskBarMediaControl. The skip buttons are native WPF controls rather than drawn inside the page: drawing them in the page
-      would need a JS-to-C# channel, and the lyric page is currently one-way (C# pushes to it), whereas a native button click is
-      an ordinary routed event with one less cross-boundary message.
+      The window holds exactly four things: the lyric host, the skip buttons on the right, a hint laid over the track-info block
+      while hovering, and a playback-progress strip along the bottom. All typography (wrapping, line transitions, syllable
+      highlighting) happens in the renderer; WPF owns only sizing, visibility, the progress strip, the skip buttons and that hint
+      — the same split as the original's TaskBarMediaControl. The skip buttons are native WPF controls rather
+      than drawn inside the page: drawing them in the page would need a JS-to-C# channel, and the lyric page is currently
+      one-way (C# pushes to it), whereas a native button click is an ordinary routed event with one less cross-boundary message.
     -->
     <Grid x:Name="RootGrid" Background="Transparent">
         <!-- 只剩一列：按钮区改为覆盖在歌词之上（见下方 TransportPanel），不再单独占一列宽度。 -->
@@ -158,6 +158,58 @@
                 <Button x:Name="PlayPauseButton" Content="&#xE768;" Style="{StaticResource TransportButton}" ToolTip="播放 / 暂停" />
                 <Button x:Name="NextButton" Content="&#xE893;" Style="{StaticResource TransportButton}" ToolTip="下一首（也可以向下滚动鼠标滚轮）" />
             </StackPanel>
+        </Grid>
+
+        <!--
+          悬停提示：指针停在"封面 + 曲目信息"那一块上时出现的一句"鼠标滚轮上下曲"。
+          那一块是整条栏里唯一没有可点控件的地方，而滚轮恰好是作用在它上面的操作（见代码后置的滚轮处理），
+          提示把"这一块能干什么"直接写在脸上，用户不必先去试一次。
+          位置与宽度由代码后置每帧摆到那一块上（见 UpdateInfoHintLayout），所以曲目信息宽带窄、封面开或关都不会跑偏；
+          出现时那一块正好被磨砂糊掉，提示压在上面才读得清，这也正是"指针在哪一块就糊哪一块"的用处。
+          显隐只认自己的 Tag，与按钮区互不影响：指针在歌词上时按钮区出现、这里收起，反过来也一样。
+          不参与命中测试：这一层只是给人看的字，指针事件不该被它挡下来。
+          The hover hint: a single line reading "scroll the wheel to change tracks", shown while the pointer rests on the
+          artwork-and-track-info part. That part is the only place in the bar with nothing clickable, and the wheel is exactly
+          what acts on it (see the wheel handling in the code-behind), so the hint states what the part does instead of making the
+          user try it once to find out. The code-behind positions and sizes it over that part every frame (see
+          UpdateInfoHintLayout), so a wide or narrow track-info block and a cover that is on or off cannot push it off; the part
+          is blurred while the hint is up, which is what keeps the hint readable and is precisely what "blur whichever part the
+          pointer is on" buys. Its visibility answers to its own Tag and is independent of the button cluster: the pointer over
+          the lyrics shows the buttons and folds this, and the reverse holds too. It takes no part in hit testing, being only text
+          for the eye; pointer input must not be swallowed by it.
+        -->
+        <Grid x:Name="InfoHintPanel"
+              Grid.Row="0"
+              Grid.Column="0"
+              HorizontalAlignment="Left"
+              VerticalAlignment="Stretch"
+              IsHitTestVisible="False"
+              Tag="Hidden">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="Shown">
+                            <Setter Property="Visibility" Value="Visible" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
+
+            <!-- 深色小底衬：提示压在磨砂块上，纯白字在浅色封面上会糊成一片。 -->
+            <Border Background="#59000000"
+                    CornerRadius="3"
+                    Margin="1,3"
+                    Padding="6,0"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+                <TextBlock x:Name="InfoHintText"
+                           Text="鼠标滚轮上下曲"
+                           Foreground="#FFFFFFFF"
+                           FontSize="11"
+                           TextWrapping="NoWrap"
+                           VerticalAlignment="Center" />
+            </Border>
         </Grid>
 
         <Border x:Name="ProgressTrack" Grid.Row="1" Background="#33FFFFFF" Visibility="Collapsed">

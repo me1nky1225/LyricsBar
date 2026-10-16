@@ -3,14 +3,32 @@ using LyricsBar.Classes.Models;
 namespace LyricsBar.Classes.Services.Lyrics;
 
 /// <summary>
-/// 逐字擦亮的纯策略：仅依据真实逐字时间轴，把播放位置换算成当前行的已唱进度。
-/// Pure syllable-highlight policy: converts playback position into sung progress using only a real word timeline.
+/// 逐字擦亮的纯策略：把播放位置换算成当前行的已唱进度。
+/// Pure syllable-highlight policy: converts playback position into sung progress for the active line.
 ///
-/// 只有真实逐字时间轴才产生进度；行级歌词不会按整行时长猜测逐字位置。
-/// Only a real syllable timeline produces progress; line-level lyrics never guess a word position from the line window.
+/// 有真实逐字时间轴时按字推进（唯一准确的做法）；只有行级歌词时按整行时长**线性摊到整行**（v1.4.10 起），
+/// 这样每个字都有"扫过去"的过程，而不是整行一次性点亮——用户看到的"有的歌词擦亮、有的不擦亮"主要就是后者。
+/// A real word timeline advances character by character (the only accurate way). With line-level lyrics only, the progress
+/// is spread linearly across the line's own window (since v1.4.10) so every line still sweeps instead of lighting up all at
+/// once — the inconsistency users reported between songs. 长尾行（间奏、拖长尾音）按字数估一个上限，超过就直接全亮，
+/// 免得扫描头慢慢爬。
+/// A long tail (an instrumental gap or a held note) is capped by an estimate from the text length, so the scan head holds at
+/// fully lit instead of crawling.
 /// </summary>
 public static class LyricHighlightPolicy
 {
+    /// <summary>
+    /// 行级歌词合成擦亮时，每个字大约占多少秒（按下限与上限一起用）。
+    /// How many seconds one character is assumed to take when the wipe is synthesised for line-level lyrics.
+    /// </summary>
+    public const double LineScanSecondsPerCharacter = 0.22;
+
+    /// <summary>
+    /// 合成擦亮的最短时长（秒）：一个字以内的短句也要看得见扫描过程。
+    /// Shortest synthesised wipe, in seconds: even a one-word line should visibly sweep.
+    /// </summary>
+    public const double MinimumLineScanSeconds = 0.9;
+
     /// <summary>
     /// 歌词时间轴与擦亮层的呈现决策。时间轴决定长歌词如何滚动，擦亮层只是叠在同一轨迹上的视觉效果；
     /// 因此关闭擦亮不得关闭时间轴或改用另一种滚动方式。
@@ -55,7 +73,7 @@ public static class LyricHighlightPolicy
     /// </summary>
     /// <param name="line">当前行 / The active line.</param>
     /// <param name="positionSeconds">播放位置（秒）/ Playback position in seconds.</param>
-    /// <returns>0 到 1 的进度；该行没有可用窗口时返回 null / Progress between 0 and 1, or null when the line has no usable window.</returns>
+    /// <returns>0 到 1 的进度；该行连起止时间都没有时返回 null / Progress between 0 and 1, or null when the line has no window at all.</returns>
     public static double? ResolveProgress(LyricLine line, double positionSeconds)
     {
         ArgumentNullException.ThrowIfNull(line);
@@ -70,7 +88,28 @@ public static class LyricHighlightPolicy
             return ResolveWordProgress(words, positionSeconds);
         }
 
-        return null;
+        return ResolveSyntheticProgress(line, positionSeconds);
+    }
+
+    /// <summary>
+    /// 行级歌词的合成擦亮：没有逐字时间轴时，按整行窗口把擦亮线性摊到整行上。
+    /// Synthesised wipe for line-level lyrics: without a word timeline, the progress is spread linearly across the line window.
+    ///
+    /// 上限按字数估算（见 <see cref="LineScanSecondsPerCharacter"/>）：间奏或拖长尾音的行不让扫描头慢慢爬，估完就保持全亮。
+    /// The span is capped by an estimate from the text length (see <see cref="LineScanSecondsPerCharacter"/>): a line with an
+    /// instrumental gap or a held note does not make the scan head crawl, it holds fully lit once the estimate is used up.
+    /// </summary>
+    private static double? ResolveSyntheticProgress(LyricLine line, double positionSeconds)
+    {
+        if (!double.IsFinite(line.Start))
+        {
+            return null;
+        }
+
+        var estimate = Math.Max(MinimumLineScanSeconds, line.Text.Length * LineScanSecondsPerCharacter);
+        var span = double.IsFinite(line.End) && line.End > line.Start ? line.End - line.Start : estimate;
+        var effective = Math.Min(span, estimate);
+        return Math.Clamp((positionSeconds - line.Start) / effective, 0, 1);
     }
 
     private static List<LyricWord> CollectUsableWords(IReadOnlyList<LyricWord> words)

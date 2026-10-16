@@ -29,6 +29,14 @@ $notes = @{
     'tools/SettingsRoundTrip/Program.cs'      = 'real SettingsWindow read/write round-trip harness'
     'tools/PositionProbe/PositionProbe.csproj' = 'playback-position arbitration probe (collapse / seek / track change)'
     'tools/PositionProbe/Program.cs'          = 'playback-position arbitration probe (collapse / seek / track change)'
+    'tools/PositionGuardProbe/PositionGuardProbe.csproj' = 'local-clock guard / stuck-position watchdog policy probe (27 assertions)'
+    'tools/PositionGuardProbe/Program.cs'     = 'local-clock guard / stuck-position watchdog policy probe (27 assertions)'
+    'tools/LineCursorProbe/LineCursorProbe.csproj' = 'line-selection hysteresis + synthetic line-level wipe probe (20 assertions)'
+    'tools/LineCursorProbe/Program.cs'        = 'line-selection hysteresis + synthetic line-level wipe probe (20 assertions)'
+    'tools/SignatureProbe/SignatureProbe.csproj' = 'NetEase signature channel probe: live attach, song id, streaming scan self-test'
+    'tools/SignatureProbe/Program.cs'         = 'NetEase signature channel probe: live attach, song id, streaming scan self-test'
+    'tools/HoverRegionProbe/HoverRegionProbe.csproj' = 'hover-region split, track-info width and font/colour catalogue probe (38 assertions)'
+    'tools/HoverRegionProbe/Program.cs'       = 'hover-region split, track-info width and font/colour catalogue probe (38 assertions)'
     'tools/regen-upload-manifest.ps1'         = 'regenerates this manifest'
 }
 
@@ -41,7 +49,7 @@ $excluded = @(
 
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add('# LyricsBar - GitHub upload manifest (repository files)')
-$lines.Add('# release version: 1.4.5 | repository files generated: 2026-10-16 | source root: LyricsBar')
+$lines.Add('# release version: 1.5.1 | repository files generated: 2026-10-16 | source root: LyricsBar')
 $lines.Add('# columns: path,bytes,modified,sha256,note')
 
 $total = 0

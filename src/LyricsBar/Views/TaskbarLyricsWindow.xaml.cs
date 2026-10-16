@@ -8,6 +8,7 @@ using LyricsBar.Classes.Interop;
 using LyricsBar.Classes.Models;
 using LyricsBar.Classes.Services;
 using LyricsBar.Classes.Services.Lyrics;
+using LyricsBar.Classes.Services.Lyrics.Presentation;
 using LyricsBar.Classes.Settings;
 using LyricsBar.Classes.Utils;
 using Microsoft.Web.WebView2.Wpf;
@@ -49,13 +50,8 @@ public partial class TaskbarLyricsWindow : Window
     /// </summary>
     private const double TrackInfoGapDip = 8;
 
-    /// <summary>
-    /// 曲目信息块的宽度上限（DIP）。曲名可以很长，不设上限时它会一路把歌词挤到省略号，
-    /// 而曲目信息本来就只是背景信息，超过这个宽度就交给省略号。
-    /// Upper bound on the track-info block's width in DIP. Titles can be long, and unbounded they would squeeze the lyrics down
-    /// to an ellipsis; track info is background information, so past this width the ellipsis takes over.
-    /// </summary>
-    private const double MaximumTrackInfoWidthDip = 160;
+    // 曲目信息块的宽度规则（自动宽度的上限、手动宽度的区间）都在 LyricsTrackInfoWidthPolicy 里，
+    // 这样探针能直接验它，宿主这边只负责量文字。
 
     /// <summary>
     /// Web 歌词布局的水平内边距（DIP），与 style.css 的 <c>--layout-padding-inline</c> 一致。
@@ -85,6 +81,16 @@ public partial class TaskbarLyricsWindow : Window
 
     /// <summary>指针是否正停在歌词栏窗口内（消息钩子维护）。按钮区的悬停显隐看它，不看 WPF 的 IsMouseOver。</summary>
     private bool _pointerInsideWindow;
+
+    /// <summary>
+    /// 指针在客户区里的横向位置（DIP），不在窗口内时为 null。判定指针落在"封面 + 曲目信息"还是"歌词"上要用它。
+    /// The pointer's horizontal position inside the client area in DIP, null while it is outside the window. It is what decides
+    /// whether the pointer rests on the artwork-and-track-info part or on the lyrics.
+    /// </summary>
+    private double? _pointerInsideDipX;
+
+    /// <summary>指针当前所在的块，由 <see cref="ResolveOverlayRegion"/> 算出来。/ The part the pointer is over, from <see cref="ResolveOverlayRegion"/>.</summary>
+    private LyricsOverlayRegion _overlayRegion = LyricsOverlayRegion.None;
 
     /// <summary>渲染器降级的最高级别，见 <see cref="ResolveBrowserArguments"/>。</summary>
     private const int MaxRendererFallbackTier = 2;
@@ -118,8 +124,14 @@ public partial class TaskbarLyricsWindow : Window
     /// </summary>
     private static readonly TimeSpan RendererReadyTimeout = TimeSpan.FromSeconds(15);
 
-    /// <summary>上一次推给 Web 端的悬停磨砂层显隐；null 表示渲染器刚重建、页面是空白的，需要重推一次。</summary>
-    private bool? _appliedOverlayShown;
+    /// <summary>上一次推给渲染器的悬停磨砂区域；null 表示渲染器刚重建、页面是空白的，需要重推一次。</summary>
+    private LyricsOverlayRegion? _appliedOverlayRegion;
+
+    /// <summary>上一次摆好的悬停提示宽度（DIP）；-1 表示还没摆过。/ Last laid-out hint width in DIP; -1 means it has not been placed yet.</summary>
+    private double _appliedInfoHintWidthDip = -1;
+
+    /// <summary>上一次设过的悬停提示字号。/ Last hint font size applied.</summary>
+    private double _appliedInfoHintFontSize;
 
     /// <summary>
     /// 两次切歌之间的最短间隔。滚轮转一格就是一条消息，转一下手腕能产生十几条，
@@ -158,8 +170,21 @@ public partial class TaskbarLyricsWindow : Window
     /// <summary>已经记过日志的歌词行下标。诊断"歌词不跟手"时，这条日志给出每次换行的时刻与实际播放位置。</summary>
     private int _lastLoggedLineIndex = int.MinValue;
 
+    /// <summary>判定"擦亮倒退"的进度差阈值；小抖动（渲染端的平滑）不算。</summary>
+    private const double ScanRegressionTolerance = 0.05;
+
+    /// <summary>上一帧擦亮进度所属的行下标，以及那一帧的进度；换行就重新计时。</summary>
+    private int _lastScanLineIndex = int.MinValue;
+    private double? _lastScanProgress;
+
+    /// <summary>本行是否已经记过"擦亮倒退"，同一行只记一条，避免刷屏。</summary>
+    private bool _scanRegressionLogged;
+
     /// <summary>已经推给 Web 端的封面 data URI，用来避免每帧重复推送同一张封面。</summary>
     private string _appliedCoverUri = string.Empty;
+
+    /// <summary>选行迟滞器：位置抖动时行号与擦亮位置都不回退（见 <see cref="LyricLineCursor"/>）。</summary>
+    private readonly LyricLineCursor _lineCursor = new();
 
     /// <summary>已推送封面的曲目标识；空封面也要随切歌更新首字母占位。</summary>
     private string _appliedCoverTrackId = string.Empty;
@@ -339,11 +364,90 @@ public partial class TaskbarLyricsWindow : Window
                      p.X <= ActualWidth * dpi.DpiScaleX &&
                      p.Y <= ActualHeight * dpi.DpiScaleY;
 
-        if (inside == _pointerInsideWindow)
+        // 指针的横向位置要留到 DIP 里：判定"在哪一块上"用的是 DIP 布局，而 lParam 是物理像素。
+        // 换算只做一次，之后每像素移动只是一次浮点除法加一次比较。
+        // The pointer's horizontal position is kept in DIP: the region decision works in the DIP layout while lParam is in
+        // physical pixels. The conversion happens once, after which each pixel of movement costs a division and a comparison.
+        var wasInside = _pointerInsideWindow;
+        _pointerInsideDipX = inside && position is { } q ? q.X / Math.Max(1, dpi.DpiScaleX) : null;
+        _pointerInsideWindow = inside;
+
+        // 区域变化也要往下走：指针从歌词划到曲目信息上时"在窗口内"没变，但磨砂该换到另一块。
+        // A region change has to fall through as well: moving from the lyrics onto the track info leaves "inside" unchanged while
+        // the frost has to move to the other part.
+        var region = ResolveOverlayRegion();
+
+        if (inside == wasInside && region == _overlayRegion)
             return;
 
-        _pointerInsideWindow = inside;
         UpdateTransportTag();
+    }
+
+    /// <summary>
+    /// 指针现在落在哪一块上。不在窗口内就是 <see cref="LyricsOverlayRegion.None"/>。
+    ///
+    /// 块的宽度用与栏宽同一套 footprint 算（封面列 + 曲目信息列），所以判定与排版不会各说各话：
+    /// 栏宽公式里少算一列，这里就会在错的像素上切开两块。
+    /// Which part the pointer is over; outside the window it is <see cref="LyricsOverlayRegion.None"/>.
+    ///
+    /// The part's width uses the same footprints the bar-width calculation uses (the artwork column plus the track-info column),
+    /// so the decision and the layout cannot disagree: omitting one column in the bar-width formula would make this split the two
+    /// parts at the wrong pixel.
+    /// </summary>
+    private LyricsOverlayRegion ResolveOverlayRegion()
+    {
+        if (!_pointerInsideWindow || _pointerInsideDipX is not { } x)
+            return LyricsOverlayRegion.None;
+
+        var settings = SettingsManager.Current;
+        var infoPartWidthDip = LyricsHoverRegionPolicy.ResolveInfoPartWidthDip(
+            settings.LyricsCoverArtEnabled,
+            ResolveCoverSizeDip(),
+            CoverGapDip,
+            _appliedTrackInfoWidthDip > 0 ? _appliedTrackInfoWidthDip : 0,
+            TrackInfoGapDip);
+
+        return LyricsHoverRegionPolicy.Resolve(x - LayoutPaddingInlineDip, infoPartWidthDip);
+    }
+
+    /// <summary>
+    /// 把"滚轮上下曲"的提示摆在封面与曲目信息那一块上。
+    ///
+    /// 它只在指针停在这一块上时出现（Tag 由 <see cref="UpdateTransportTag"/> 设置），而且必须盖住整块：
+    /// 提示出现时这一块正好被磨砂糊掉，提示压在上面才读得清；位置每帧跟着块宽走，定宽与自适应两种模式都不会跑偏。
+    /// Places the "scroll wheel skips tracks" hint over the artwork-and-track-info part.
+    ///
+    /// It appears only while the pointer rests on that part (the Tag is set by <see cref="UpdateTransportTag"/>) and has to cover
+    /// the whole part: that part is exactly what the frost blurs while the hint is up, so sitting on top of it is what keeps the
+    /// hint readable. Its position follows the block's width every frame, so neither a fixed nor an automatic width can push it
+    /// off.
+    /// </summary>
+    private void UpdateInfoHintLayout(AppSettings settings)
+    {
+        var infoPartWidthDip = LyricsHoverRegionPolicy.ResolveInfoPartWidthDip(
+            settings.LyricsCoverArtEnabled,
+            ResolveCoverSizeDip(),
+            CoverGapDip,
+            _appliedTrackInfoWidthDip > 0 ? _appliedTrackInfoWidthDip : 0,
+            TrackInfoGapDip);
+
+        if (Math.Abs(infoPartWidthDip - _appliedInfoHintWidthDip) > 0.5)
+        {
+            _appliedInfoHintWidthDip = infoPartWidthDip;
+            InfoHintPanel.Margin = new Thickness(LayoutPaddingInlineDip, 0, 0, 0);
+            InfoHintPanel.Width = Math.Max(0, infoPartWidthDip);
+        }
+
+        // 字号跟着栏高走：任务栏高度从小图标到大任务栏差一倍，写死的字号在小任务栏上会溢出、
+        // 在大任务栏上又小得读不出来。
+        // The font size follows the bar height: taskbar heights differ by a factor of two, so a hard-coded size either overflows
+        // on a small taskbar or becomes unreadably small on a large one.
+        var hintFontSize = Math.Clamp(ResolveBarHeightDip() * 0.32, 10, 14);
+        if (Math.Abs(hintFontSize - _appliedInfoHintFontSize) > 0.1)
+        {
+            _appliedInfoHintFontSize = hintFontSize;
+            InfoHintText.FontSize = hintFontSize;
+        }
     }
 
     /// <summary>
@@ -693,7 +797,14 @@ public partial class TaskbarLyricsWindow : Window
 
         var settings = SettingsManager.Current;
         var previous = _frame;
-        _frame = LyricsPresentationProjector.Project(_coordinator.Latest, settings, DateTimeOffset.UtcNow);
+        // 迟滞器常驻这一条窗口：位置抖动时行号与擦亮位置都不回退，换歌时它自己重置（见 LyricLineCursor）。
+        // The cursor lives for the whole window: the line index and the scan position stay put while the position jitters, and it
+        // resets itself on a track change (see LyricLineCursor).
+        _frame = LyricsPresentationProjector.Project(
+            _coordinator.Latest,
+            settings,
+            DateTimeOffset.UtcNow,
+            _lineCursor);
 
         // 封面独立于歌词帧：即使这一帧没有可呈现的歌词，封面也要跟上当前曲目，
         // 否则重新显示歌词栏时会先闪一下上一首的封面。
@@ -727,6 +838,7 @@ public partial class TaskbarLyricsWindow : Window
         }
 
         LogLineChange();
+        LogScanRegression();
 
         // 每帧都走一次：渲染器就绪前这个方法会拒绝把窗口变透明，就绪之后才真正生效，
         // 因此必须持续调用，而不是只在 canPresent 跳变时调用。
@@ -767,7 +879,79 @@ public partial class TaskbarLyricsWindow : Window
         _lastLoggedLineIndex = index;
         var position = TaskbarExperiencePolicy.GetPosition(snapshot, DateTimeOffset.UtcNow);
         var text = _frame.Current.Length > 40 ? string.Concat(_frame.Current.AsSpan(0, 40), "…") : _frame.Current;
-        Log.Info("Lyrics", $"行切换: 第 {index + 1} 行「{text}」（播放位置 {position:0.##} 秒，来源 {snapshot.SourceName}）");
+
+        // 这一行的歌词身份也一起记：用户报"有的歌擦亮、有的不擦亮"时，日志里就能直接看出这次拿到的是逐字时间轴
+        // （Yrc/SyllableSynced，本行有逐字片段）还是只有行级时间轴（Lrc/LineSynced，合成擦亮）。
+        // The lyric identity of this line is logged too: when a user reports that some songs highlight and others do not, the log
+        // shows directly whether this retrieval carries a word timeline (Yrc/SyllableSynced with word fragments) or only a
+        // line-level one (Lrc/LineSynced, which gets the synthesised wipe).
+        Log.Info("Lyrics", $"行切换: 第 {index + 1} 行「{text}」（播放位置 {position:0.##} 秒，来源 {snapshot.SourceName}，"
+            + $"歌词 {DescribeLyrics(snapshot)}，本行 {DescribeLineWords(snapshot, index)}）");
+    }
+
+    /// <summary>把这次取到的歌词文档摊成一行诊断文本（来源格式 / 同步级别 / 匹配分）。</summary>
+    private static string DescribeLyrics(MediaSnapshot snapshot)
+    {
+        var lyrics = snapshot.Lyrics;
+        return lyrics is null
+            ? "未取到"
+            : $"{lyrics.Source}/{lyrics.Document.SourceFormat}/{lyrics.Document.SyncType}（分 {lyrics.MatchScore}）";
+    }
+
+    /// <summary>这一行的逐字片段数与总字数；没有逐字时间轴时是 0 段，擦亮由行窗口合成。</summary>
+    private static string DescribeLineWords(MediaSnapshot snapshot, int index)
+    {
+        var lines = snapshot.Lyrics?.Document.Lines;
+        if (lines is null || index < 0 || index >= lines.Count)
+        {
+            return "逐字 ? 段";
+        }
+
+        var line = lines[index];
+        var characters = 0;
+        foreach (var word in line.Words)
+        {
+            characters += word.Text?.Length ?? 0;
+        }
+
+        return $"逐字 {line.Words.Count} 段/{characters} 字";
+    }
+
+    /// <summary>
+    /// 擦亮倒退检测：同一行内投影给出的擦亮进度只增不减（迟滞器保证喂进去的位置单调），所以出现倒退就说明画面上
+    /// 的扫描头会"跳回开头"。用户报过"每句开头擦亮一两个词又跳回开头重来"，这条日志是它唯一的现场证据。
+    /// Scan-regression detection: inside one line the projected highlight progress only moves forward (the cursor keeps the
+    /// position it feeds monotonic), so a backward step means the scan head visibly snaps back — the exact symptom users
+    /// reported as "the first words light up, then the wipe restarts". This line is the only on-site evidence of it.
+    /// </summary>
+    private void LogScanRegression()
+    {
+        var progress = _frame.WordScanProgress;
+        var index = _frame.CurrentLineIndex;
+        if (index < 0 || progress is not double value)
+        {
+            _lastScanProgress = null;
+            _scanRegressionLogged = false;
+            return;
+        }
+
+        if (index != _lastScanLineIndex)
+        {
+            _lastScanLineIndex = index;
+            _lastScanProgress = value;
+            _scanRegressionLogged = false;
+            return;
+        }
+
+        if (!_scanRegressionLogged && _lastScanProgress is double previous && value < previous - ScanRegressionTolerance)
+        {
+            _scanRegressionLogged = true;
+            var position = TaskbarExperiencePolicy.GetPosition(_coordinator.Latest, DateTimeOffset.UtcNow);
+            Log.Warn("Lyrics", $"擦亮倒退: 行下标 {index}，进度 {previous:0.###} → {value:0.###}"
+                + $"（播放位置 {position:0.##} 秒）。同一行内进度不该回退，说明画面上的扫描头会跳回开头。");
+        }
+
+        _lastScanProgress = value;
     }
 
     /// <summary>
@@ -803,6 +987,8 @@ public partial class TaskbarLyricsWindow : Window
             _appliedTransportLeftDip = paneLeftDip;
             TransportPanel.Margin = new Thickness(paneLeftDip, 0, LayoutPaddingInlineDip, 0);
         }
+
+        UpdateInfoHintLayout(settings);
 
         var scale = Math.Max(1, _target.DpiScale);
         var widthPx = (int)Math.Round(widthDip * scale);
@@ -1083,24 +1269,37 @@ public partial class TaskbarLyricsWindow : Window
         if (!string.Equals((string?)TransportPanel.Tag, targetTag, StringComparison.Ordinal))
             TransportPanel.Tag = targetTag;
 
-        ApplyOverlayPlate(shown);
+        // 指针停在封面与曲目信息那一块上时给一句"滚轮上下曲"的提示：那一块本身没有可点的东西，
+        // 而滚轮恰好是这一块上的操作，提示把两者对上。按钮区的开关与它无关，两者按各自的区域出现。
+        // A "scroll wheel skips tracks" hint appears while the pointer rests on the artwork-and-track-info part: that part holds
+        // nothing clickable, and the wheel is exactly what acts on it, so the hint pairs the two. It is independent of the button
+        // cluster's switch — each appears according to its own region.
+        var region = ResolveOverlayRegion();
+        _overlayRegion = region;
+
+        var hintTag = shown && region == LyricsOverlayRegion.Info ? "Shown" : "Hidden";
+        if (!string.Equals((string?)InfoHintPanel.Tag, hintTag, StringComparison.Ordinal))
+            InfoHintPanel.Tag = hintTag;
+
+        ApplyOverlayPlate(region);
     }
 
     /// <summary>
-    /// 推给 Web 端"磨砂层是否可见"。真正的模糊只能由页面自己完成：WebView2 是合成控件，WPF 的 Effect 作用不到
-    /// 它，所以覆盖在歌词上的那层磨砂必须是页面自己画的 backdrop-filter 满宽层；这一层只负责按钮的显隐。
-    /// Pushes the frosted layer's visibility to the web side. The actual blur can only be done by the page: WebView2 is a
-    /// composition control that WPF effects cannot reach, so the frosted layer over the lyrics has to be a full-bleed
-    /// backdrop-filter layer drawn by the page; this side only owns the buttons' visibility.
+    /// 把"指针在哪一块上"推给渲染器。真正的模糊在渲染器那一侧完成：原生渲染器糊的是自己那几个元素，
+    /// WebView2 则由页面自己糊（WPF 的 Effect 作用不到合成控件）。
+    /// 指针不在窗口内时推 <see cref="LyricsOverlayRegion.None"/>，两块都恢复原样。
+    /// Pushes "which part the pointer is over" to the renderer. The actual blur happens on the renderer's side: the native
+    /// renderer blurs its own elements, while WebView2 has the page do it (WPF effects cannot reach a composition control).
+    /// Outside the window <see cref="LyricsOverlayRegion.None"/> goes out and both parts return to normal.
     /// </summary>
-    /// <param name="shown">磨砂层是否可见。/ Whether the frosted layer is visible.</param>
-    private void ApplyOverlayPlate(bool shown)
+    /// <param name="region">指针所在的块。/ The part under the pointer.</param>
+    private void ApplyOverlayPlate(LyricsOverlayRegion region)
     {
-        if (_renderer is not { IsReady: true } || _appliedOverlayShown == shown)
+        if (_renderer is not { IsReady: true } || _appliedOverlayRegion == region)
             return;
 
-        _appliedOverlayShown = shown;
-        _renderer.SetOverlay(shown);
+        _appliedOverlayRegion = region;
+        _renderer.SetOverlay(region);
     }
 
     /// <summary>
@@ -1255,7 +1454,7 @@ public partial class TaskbarLyricsWindow : Window
             return;
 
         RememberRendererTier();
-        _appliedOverlayShown = null;
+        _appliedOverlayRegion = null;
         ApplyRendererStyle();
         UpdateFrame();
     }
@@ -1452,11 +1651,20 @@ public partial class TaskbarLyricsWindow : Window
         if (title.Length == 0 && artist.Length == 0)
             return 0;
 
+        // 用户定过宽度就照用：定宽的目的正是把栏宽钉死，不再随曲名长短伸缩，所以这里不看文字量出来的宽度。
+        // 文字排不下时由渲染端按省略号截断（原生端与网页端各自的裁剪都在块内做）。
+        // A user-set width wins outright: the point of setting one is to pin the bar's width down instead of letting it stretch
+        // with the title's length, so the measured text width is not consulted here. Text that does not fit is trimmed with an
+        // ellipsis at the rendering end, inside the block, on both the native and the web side.
+        var manualWidthDip = LyricsTrackInfoWidthPolicy.NormalizeManual(settings.LyricsTrackInfoWidthDip);
+        if (manualWidthDip > 0)
+            return manualWidthDip;
+
         var artistFontSize = Math.Max(9, settings.LyricsFontSize * 0.92);
         var titleWidth = MeasureTextWidthDip(title, settings, settings.LyricsFontSize);
         var artistWidth = MeasureTextWidthDip(artist, settings, artistFontSize);
 
-        return Math.Min(Math.Max(titleWidth, artistWidth), MaximumTrackInfoWidthDip);
+        return Math.Min(Math.Max(titleWidth, artistWidth), LyricsTrackInfoWidthPolicy.AutoMaximumDip);
     }
 
     /// <summary>
@@ -1488,7 +1696,10 @@ public partial class TaskbarLyricsWindow : Window
             fontFamily,
             fontFamily,
             settings.LyricsFontSize,
-            400,
+            // 加粗走字重而不是另加一个字重字段：700 是 OpenType 的 Bold，渲染器与页面都按 >=600 当粗体。
+            // Bold rides the weight rather than a separate bold flag: 700 is OpenType's Bold, and both the renderer and the page
+            // treat anything >= 600 as bold.
+            settings.LyricsFontBold ? 700 : 400,
             LyricsCharacterSpacing.Normalize(settings.LyricsCharacterSpacingPercent),
             LyricsLineGap.Normalize(settings.LyricsLineGapPercent),
             settings.LyricsTextAlignment switch
@@ -1505,7 +1716,8 @@ public partial class TaskbarLyricsWindow : Window
             primary,
             settings.LyricsTextShadowEnabled ? "0 0 3px rgba(0, 0, 0, 0.85)" : "none",
             settings.LyricsCoverArtEnabled,
-            ResolveCoverSizeDip());
+            ResolveCoverSizeDip(),
+            settings.LyricsFontItalic);
     }
 
     private static string ResolveFontFamily(AppSettings settings) =>
@@ -1557,7 +1769,8 @@ public partial class TaskbarLyricsWindow : Window
         _appliedTrackInfoTitle = string.Empty;
         _appliedTrackInfoArtist = string.Empty;
         _appliedTrackInfoWidthDip = -1;
-        _appliedOverlayShown = null;
+        _appliedOverlayRegion = null;
+        _appliedInfoHintWidthDip = -1;
         // 按钮组的边距依赖曲目信息块宽度，宽度记录一清就得跟着重算，否则重建后会停在旧位置的居中点上。
         _appliedTransportLeftDip = -1;
 

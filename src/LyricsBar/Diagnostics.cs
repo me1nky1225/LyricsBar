@@ -233,40 +233,63 @@ internal static class Diagnostics
     }
 
     /// <summary>
-    /// 等网易云的内存位置通道锁定位址。这条通道要先扫一遍内存（约 5-7 秒）才知道位置存在哪儿，自检在这里等它一下，
-    /// 后面那次"位置推进检查"读到的才是内存位置，而不是本地计时。来源不是网易云时直接跳过，不白等。
-    /// Waits for the NetEase memory-position channel to lock onto addresses. It has to scan memory once (about five to seven
-    /// seconds) before it knows where the position lives, and the self-check waits for that so the advance check below reports
-    /// the memory position rather than the local clock. It is skipped outright when the source is not NetEase.
+    /// 等网易云的位置通道可用。v1.4.8 起首选是特征码通道（在 cloudmusic.dll 里按上游那两条特征码直接读播放器自己的
+    /// 位置/时长/状态，附加一次只要几十毫秒），它不可用时才退回内存扫描通道（要先扫一遍内存，约 5-7 秒）。自检在这里
+    /// 等一会儿，后面那次"位置推进检查"读到的才是真实位置而不是本地计时。来源不是网易云时直接跳过。
+    /// Waits for the NetEase position channel to become usable. From v1.4.8 the signature channel comes first (upstream's
+    /// two signatures read the player's own position, duration and status out of cloudmusic.dll, attaching in tens of
+    /// milliseconds); only when it is unavailable does the memory scan channel take over (which must scan memory once,
+    /// about five to seven seconds). The self-check waits here so that the advance check below reports a real position and
+    /// not the local clock. It is skipped outright when the source is not NetEase.
     /// </summary>
     private static async Task WaitForNeteaseMemoryAsync(AppLogService log, SmtcMediaReader media, MediaSnapshot snapshot)
     {
         var service = media.NeteasePosition;
         if (service is null)
         {
-            log.Info("Diagnose", "网易云内存位置通道: 未安装");
+            log.Info("Diagnose", "网易云位置通道: 未安装");
             return;
         }
 
         if (!LyricsBar.Classes.Services.MediaSourceNameFormatter.IsNetEase(snapshot.SourceId))
         {
-            log.Info("Diagnose", $"网易云内存位置通道: 跳过（当前来源是{snapshot.SourceName}）");
+            log.Info("Diagnose", $"网易云位置通道: 跳过（当前来源是{snapshot.SourceName}）");
             return;
         }
 
-        log.Info("Diagnose", "网易云内存位置通道: 等待锁定位址（最多 20 秒）");
-        for (var attempt = 0; attempt < 40; attempt++)
+        // 先读一次，把服务的循环叫起来（位置通道是懒启动的）。
+        // Read once first to start the service's loop; the position channel starts lazily.
+        await media.ReadAsync();
+
+        log.Info("Diagnose", "网易云位置通道: 等待特征码通道（最多 5 秒）");
+        for (var attempt = 0; attempt < 10; attempt++)
         {
-            if (service.IsLocked)
+            if (service.IsSignatureChannel)
             {
-                log.Info("Diagnose", $"网易云内存位置通道: 已锁定（用时 {attempt * 0.5:0.0} 秒）");
+                service.TryGetTrackInfo(out var signatureDuration, out var signatureIsPlaying);
+                log.Info(
+                    "Diagnose",
+                    $"网易云位置通道: 特征码通道可用（用时约 {attempt * 0.5:0.0} 秒，时长 {signatureDuration:0.0} 秒，"
+                    + $"播放状态 {(signatureIsPlaying ? "播放中" : "未播放")}）。");
                 return;
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(500));
         }
 
-        log.Info("Diagnose", "网易云内存位置通道: 20 秒内未锁定，这次会退回本地计时");
+        log.Info("Diagnose", "网易云位置通道: 特征码通道不可用，等待内存扫描锁定位址（最多 20 秒）");
+        for (var attempt = 0; attempt < 40; attempt++)
+        {
+            if (service.IsLocked)
+            {
+                log.Info("Diagnose", $"网易云位置通道: 内存扫描已锁定（用时 {attempt * 0.5:0.0} 秒）");
+                return;
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+        }
+
+        log.Info("Diagnose", "网易云位置通道: 20 秒内都没可用通道，这次会退回本地计时");
     }
 
     /// <summary>
