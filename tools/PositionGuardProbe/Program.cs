@@ -3,10 +3,10 @@
 // Position-layer watchdog self-check: runs the two pure policies newly wired into SmtcMediaReader
 // (MemoryChannelWatchdog / LocalClockStandInGuard) through their cases.
 //
-// 为什么需要它：HANDOFF-NETEASE-SYNC §6.3 点名的两件事——"内存通道锁定后连续 N 拍与本地秒表对照，偏差超阈值
+// 为什么需要它：位置层当时还剩两件事——"内存通道锁定后连续 N 拍与本地秒表对照，偏差超阈值
 // 就作废重扫"（真机日志里通道失效一次都没触发过，而锁定地址数在 3–113 之间乱跳）与"秒表只适合短时间顶替，
 // 超过若干秒应冻结而不是继续跑偏"。这两个策略不碰 Win32，探针能把它们的每个形状固定成断言。
-// Why it exists: HANDOFF-NETEASE-SYNC §6.3 names two things — "once the memory channel locks, compare it against the
+// Why it exists: two gaps remained in the position layer — "once the memory channel locks, compare it against the
 // local clock for N polls and invalidate on a persistent gap" (channel invalidation never fired in the real-hardware
 // logs while the locked address count bounced between 3 and 113) and "the stopwatch is only fit to stand in briefly;
 // past a few seconds it should freeze rather than keep drifting". Neither policy touches Win32, so a probe can pin

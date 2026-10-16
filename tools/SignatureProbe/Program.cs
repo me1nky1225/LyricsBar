@@ -6,11 +6,11 @@ using System.Text.RegularExpressions;
 namespace SignatureProbe;
 
 /// <summary>
-/// 网易云特征码位置通道的可行性自检。回答 HANDOFF-NETEASE-SYNC.md §10 里悬着的两个问题：
+/// 网易云特征码位置通道的可行性自检。回答当时还悬着的两个问题：
 /// ① 用户当前这版 cloudmusic.dll 里，上游 AF Media Bar 用的那两条特征码还匹不匹配？
 /// ② 匹配出来的指针指向的 double，到底是不是"当前播放位置"？
-/// Feasibility probe for the signature-based NetEase position channel. It answers the two open questions from the
-/// handoff document: do the two signatures still match the user's current cloudmusic.dll, and is the double behind
+/// Feasibility probe for the signature-based NetEase position channel. It answers two open questions: do the two
+/// signatures still match the user's current cloudmusic.dll, and is the double behind
 /// the resolved pointer really the playback position?
 /// </summary>
 internal static class Program

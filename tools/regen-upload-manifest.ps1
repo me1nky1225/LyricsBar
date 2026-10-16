@@ -1,5 +1,10 @@
 # 重新生成归档目录的 docs/github-upload-manifest.csv，并打印核对数字。
-# Regenerates the archive manifest and prints the numbers quoted by UPLOAD-CHECKLIST.md.
+# Regenerates the archive manifest and prints the totals for review.
+#
+# 归档约定 / Archive convention: 从开发库镜像过来的源码里，指向内部笔记文件的引用（例如
+# HANDOFF-NETEASE-SYNC.md §x.y）在归档版本里改写成了不依赖文件名的说法，因为那些笔记不在本仓库里；
+# 下次同步时请照此处理。 / Mirrored sources have references to the internal note files reworded so
+# that they do not dangle in this archive; re-apply that when syncing again.
 #
 # 用法 / Usage:  powershell -File tools/regen-upload-manifest.ps1 [-Archive <path>]
 param(
@@ -47,6 +52,10 @@ $excluded = @(
     (Join-Path $Archive '.workbuddy-ai')
 )
 
+# 构建产物同理不进清单：本仓库不跟踪 bin/obj，但本地 build / dotnet run 会留下它们。
+# Build output is excluded too: untracked here, but a local build / dotnet run leaves it behind.
+$excludedSegments = @('\bin\', '\obj\')
+
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add('# LyricsBar - GitHub upload manifest (repository files)')
 $lines.Add('# release version: 1.5.1 | repository files generated: 2026-10-16 | source root: LyricsBar')
@@ -57,7 +66,8 @@ Get-ChildItem $Archive -Recurse -Force -File |
     Where-Object {
         $file = $_
         $file.FullName -ne $manifest -and
-        -not ($excluded | Where-Object { $file.FullName -eq $_ -or $file.FullName.StartsWith($_ + '\') })
+        -not ($excluded | Where-Object { $file.FullName -eq $_ -or $file.FullName.StartsWith($_ + '\') }) -and
+        -not ($excludedSegments | Where-Object { $file.FullName.Contains($_) })
     } |
     Sort-Object FullName |
     ForEach-Object {
@@ -70,7 +80,12 @@ Get-ChildItem $Archive -Recurse -Force -File |
 
 [System.IO.File]::WriteAllLines($manifest, $lines, (New-Object System.Text.UTF8Encoding($false)))
 
-$all = Get-ChildItem $Archive -Recurse -Force -File | Where-Object { $_.FullName -notlike "$Archive\.git\*" } | Measure-Object -Property Length -Sum
+$all = Get-ChildItem $Archive -Recurse -Force -File |
+    Where-Object {
+        $file = $_
+        -not ($excluded | Where-Object { $file.FullName -eq $_ -or $file.FullName.StartsWith($_ + '\') }) -and
+        -not ($excludedSegments | Where-Object { $file.FullName.Contains($_) })
+    } | Measure-Object -Property Length -Sum
 "manifest rows (excluding itself): $($lines.Count - 3)"
 "manifest bytes total (excluding itself): $total"
 "archive files (including the manifest): $($all.Count)"

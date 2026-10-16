@@ -24,13 +24,12 @@ namespace LyricsBar.Classes.Services;
 /// （"读得到值"不等于"锁对了地址"，真机日志里 address 数在 3–113 之间乱跳、而失效判据一次都没触发过）。
 /// <para>
 /// v1.4.8 起扫描降为**兜底**，首选是 <see cref="NeteaseSignatureChannel"/>：在 <c>cloudmusic.dll</c> 的 <c>.text</c>
-/// 里按上游那两条特征码直接读出播放器自己的位置、时长、状态（`tools/SignatureProbe` 已实测命中，见
-/// <c>HANDOFF-NETEASE-SYNC.md</c> §3.8）。上面这套扫描分不出"当前播放位置"和"随便一个按 1 倍速前进的计时器"
+/// 里按上游那两条特征码直接读出播放器自己的位置、时长、状态（`tools/SignatureProbe` 已实测命中）。上面这套扫描分不出"当前播放位置"和"随便一个按 1 倍速前进的计时器"
 /// ——真机日志里它锁到过一个从当天 12:39 起算的全局计时器（位置 4800 秒、换歌不归零、几千个副本），特征码通道
 /// 没有这个歧义，而且它还能给出真实时长。特征码失效（网易云升级、读失败累计）时自动退回本文件这条扫描通道。
 /// From v1.4.8 the scan is the **fallback** and <see cref="NeteaseSignatureChannel"/> comes first: it reads the player's
 /// own position, duration and status straight out of cloudmusic.dll's .text through upstream's two signatures (measured
-/// to match, see HANDOFF-NETEASE-SYNC.md §3.8). The scan above cannot tell "the current playback position" from "any
+/// to match). The scan above cannot tell "the current playback position" from "any
 /// timer advancing at 1x" — the real-hardware log shows it locking a global timer started at 12:39 that day (position
 /// 4800 s, never reset on a track change, thousands of copies) — while the signature channel has no such ambiguity and
 /// reports the real duration too. When the signatures fail (a NetEase update, too many read failures) the scan channel

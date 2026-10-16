@@ -45,9 +45,9 @@ public sealed record LyricsWebStyle(
 /// self-drawn implementation and the WebView2-hosted page can coexist and be swapped, which also makes it practical to
 /// compare them item by item.
 ///
-/// 协议与原来的 WebView2 适配器完全一致（见 <c>RENDERER-REWRITE.md</c> §3.2）：
+/// 协议与原来的 WebView2 适配器完全一致：
 /// 宿主只喂三样东西——一帧歌词、一份外观，外加封面与曲目信息两条独立消息；渲染器不回传任何东西。
-/// The contract is exactly the one the WebView2 adapter had (see RENDERER-REWRITE.md §3.2): the host feeds a lyric frame, an
+/// The contract is exactly the one the WebView2 adapter had: the host feeds a lyric frame, an
 /// appearance, and two standalone messages for artwork and track info; nothing travels back.
 /// </summary>
 public interface ILyricsRenderer : IDisposable

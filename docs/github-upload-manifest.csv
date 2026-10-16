@@ -26,7 +26,7 @@ src/LyricsBar/Classes/Services/LocalClockStandInGuard.cs,4991,2026-10-16 13:48,d
 src/LyricsBar/Classes/Services/Lyrics/Cache/LyricsCacheBudgetPolicy.cs,4920,2026-10-14 20:29,85c221eca09fcfcc94184c5cae68336898db483a224754a474ef2e50d808906e,
 src/LyricsBar/Classes/Services/Lyrics/Cache/LyricsCacheInvalidationPolicy.cs,2498,2026-10-15 19:07,cc6595df2daaa149a9fd2e0a098cbd62702474a7deef792e6b98d12873d61a4a,
 src/LyricsBar/Classes/Services/Lyrics/Cache/LyricsCacheRetentionPolicy.cs,481,2026-10-14 20:29,30ca7f22463ffc59482d71df45bf4d5348b783dc27fa754dcaf8d661f3bcac09,
-src/LyricsBar/Classes/Services/Lyrics/ILyricsRenderer.cs,5197,2026-10-16 16:33,3cb6da415a53a80905e2d98875f04aec4c126789e8cdc76adad55d5d5824c5b9,
+src/LyricsBar/Classes/Services/Lyrics/ILyricsRenderer.cs,5123,2026-10-16 17:24,5eb15f3795ad1de9f5d583ebc0360c744db5337cf38b6701157a1fe9b392e2c3,
 src/LyricsBar/Classes/Services/Lyrics/LyricsMatchStrictnessPolicy.cs,3227,2026-10-15 19:05,c1567a5200dbcc332ea9865334e8523cdabb73525f015034780a1e205e4ce595,
 src/LyricsBar/Classes/Services/Lyrics/LyricsMediaEligibilityPolicy.cs,1598,2026-10-14 20:29,5a7bf5cd806cbea3947d81554fba198ff49082399a6308438731171e064d19fc,
 src/LyricsBar/Classes/Services/Lyrics/LyricsPresentationRefreshPolicy.cs,4806,2026-10-14 20:29,88052aef66fe4367e721e4550db3e4a9b8cc963ebf0e9f0e5a69da83f6843116,
@@ -71,7 +71,7 @@ src/LyricsBar/Classes/Services/MediaSourceNameFormatter.cs,3693,2026-10-15 16:57
 src/LyricsBar/Classes/Services/MediaTransportService.cs,6527,2026-10-15 11:31,5e81ab14d51c9fa8d56d104673480dda19ecb432f68d259a8a7bc33f51761f2d,
 src/LyricsBar/Classes/Services/MemoryChannelWatchdog.cs,7902,2026-10-16 13:50,59dea4a41b438b1ca8f75c4c120ea63a3d33dee21b1193443c3c7754f67b4ec3,
 src/LyricsBar/Classes/Services/MemoryLockSanityPolicy.cs,9991,2026-10-16 14:07,f14d1ce67a19f11df1ca8fae0734411e5d7b330ccdba958c93d98afee181282c,
-src/LyricsBar/Classes/Services/NeteasePositionService.cs,44616,2026-10-16 14:41,8fc28f80dece6fb09a8f9ffe31ec0223fbd68704a41e02b4e136fff1954e02c8,
+src/LyricsBar/Classes/Services/NeteasePositionService.cs,44534,2026-10-16 17:24,250a3c4c39ffdc65fea2390e51e266f2ccc63a6736b4193a144af2b28045d1d7,
 src/LyricsBar/Classes/Services/NeteaseQueueService.cs,17751,2026-10-15 22:31,20d31fe814b41853629af387ab8c6d934cc07381cf363394eab5fc5bbb69be97,
 src/LyricsBar/Classes/Services/NeteaseSignatureChannel.cs,36303,2026-10-16 17:01,cf36fa5060628cbc58cb7ce7fbbfcd1423744adbd4dcab8f70faef8ceb02122e,
 src/LyricsBar/Classes/Services/PositionArbitrationPolicy.cs,14451,2026-10-16 13:29,48312255e48fa8b58da86ff261ea20adf16dc2707d9c72d0992021ea81f814e4,
@@ -111,13 +111,13 @@ tools/LineCursorProbe/Program.cs,11479,2026-10-16 16:06,cf8879e72298ddf2eb92960d
 tools/MatchProbe/MatchProbe.csproj,564,2026-10-15 22:29,a7b9676a2a8fd1abd9d6b4e64be18199144df882fff605b0b5eeb0728ecefd31,NetEase queue namesake / artist verification probe
 tools/MatchProbe/Program.cs,10415,2026-10-15 22:30,2538fe1be1b7471bf5f863330e966a91f85d7ae5c599f91c448e1e3068aa8901,NetEase queue namesake / artist verification probe
 tools/PositionGuardProbe/PositionGuardProbe.csproj,1347,2026-10-16 13:49,13232e7e4f19b3088ab7674023de6e5c8ead8c31139d0236bbe5ccf0f008dd3c,local-clock guard / stuck-position watchdog policy probe (27 assertions)
-tools/PositionGuardProbe/Program.cs,20569,2026-10-16 14:11,e72b31b58a2b4fc8598ca9350d7585dc5c80dce78f4cf3e546683dd047d7a188,local-clock guard / stuck-position watchdog policy probe (27 assertions)
+tools/PositionGuardProbe/Program.cs,20550,2026-10-16 17:24,7569d7a16dc8f2f31d313ce3fe9a4dc48b8aad6b970d171ff57b1ae9834e7c9c,local-clock guard / stuck-position watchdog policy probe (27 assertions)
 tools/PositionProbe/PositionProbe.csproj,1120,2026-10-16 13:31,d1981637a99efe6a8e2921551741460c82dd789cdcbd1507aa9e24e3fb7b9301,playback-position arbitration probe (collapse / seek / track change)
 tools/PositionProbe/Program.cs,9560,2026-10-16 13:31,9555e7de253ca1fbf021b552ac7d93f6eb694ea3b4fc57c01beb3b802c82298b,playback-position arbitration probe (collapse / seek / track change)
 tools/PureMusicProbe/Program.cs,7481,2026-10-15 21:55,118782bbb11e11487434bfc21cebc0a1ed54d2078d32818fd28e4fc0073b0b3f,pure-music / no-lyrics presentation probe
 tools/PureMusicProbe/PureMusicProbe.csproj,572,2026-10-15 21:51,bfc15eb8ad7801468a57202b37ab83a8e6dc50100263be66aca62feb85521520,pure-music / no-lyrics presentation probe
-tools/regen-upload-manifest.ps1,5103,2026-10-16 17:21,6d2164187873bf4746d548f84d077a75cf9d940961d667b4a00091bc88bb5aa8,regenerates this manifest
+tools/regen-upload-manifest.ps1,6039,2026-10-16 17:25,ec9be03d3db1e2a32a4fea2f715f203e38617df53ec2b043bea92063173a3690,regenerates this manifest
 tools/SettingsRoundTrip/Program.cs,11926,2026-10-16 16:43,d470a01ec24084169ad5693914f6e3c131d095731523ff0018285fbf671d3b40,real SettingsWindow read/write round-trip harness
 tools/SettingsRoundTrip/SettingsRoundTrip.csproj,738,2026-10-15 19:24,3e2211bf2f150373a995dd54dc8e15e69f4b858ce6dc6cd2c4dc20d84aac7048,real SettingsWindow read/write round-trip harness
-tools/SignatureProbe/Program.cs,28951,2026-10-16 17:03,083e84b268def86d104f2e1128aa6a6a4127b9dc3e3fe6fe4c3a0f6ab28f0396,NetEase signature channel probe: live attach, song id, streaming scan self-test
+tools/SignatureProbe/Program.cs,28897,2026-10-16 17:24,001626ba627fec5150a1219c3a4f79024b0f9f8832e6c1e56c35fb028245d9b0,NetEase signature channel probe: live attach, song id, streaming scan self-test
 tools/SignatureProbe/SignatureProbe.csproj,1191,2026-10-16 14:24,3e30a1ec3c1d030cb0f60007b758f4c8aee37b4320e80ec09c234a4f6a222c50,NetEase signature channel probe: live attach, song id, streaming scan self-test
