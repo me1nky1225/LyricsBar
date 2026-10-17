@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using LyricsBar.Classes.Utils;
+using static LyricsBar.Classes.Interop.NativeMethods;
 
 namespace LyricsBar.Classes.Services;
 
@@ -81,17 +82,30 @@ public static class PlayerActivationService
             return false;
         }
 
-        var window = FindPlayerWindow(candidates);
+        var matches = CollectMatchingProcesses(candidates);
+        var window = matches.Count > 0 ? FindBestWindow(matches) : IntPtr.Zero;
+
+        if (window == IntPtr.Zero && matches.Count > 0 && TryRelaunch(matches))
+        {
+            Log.Info(LogCategory, $"单击歌词栏：播放器进程在，但已经没有窗口（关到托盘时销毁了面板），已重新启动一次把它叫回来（{string.Join('/', candidates)}）。");
+            return true;
+        }
+
         if (window != IntPtr.Zero)
         {
-            // 最小化的窗口先还原：只 SetForegroundWindow 一个最小化窗口，它会被拉到前台但仍然最小化，看着像没反应。
-            // A minimised window is restored first: calling SetForegroundWindow alone brings it forward while still minimised,
-            // which looks like nothing happened.
+            // 最小化或"关到托盘"藏起来的窗口都得先还原：只 SetForegroundWindow 一个最小化窗口，它会被拉到前台但仍然最小化，
+            // 看着像没反应；而藏起来的窗口（SW_HIDE）连 SetForegroundWindow 都不会让它出现。
+            // Both a minimised window and one hidden by "close to tray" have to be restored first: SetForegroundWindow alone
+            // brings a minimised window forward while it stays minimised, which looks like nothing happened, and it does not
+            // make an SW_HIDE-hidden window appear at all.
+            var hidden = !IsWindowVisible(window);
             _ = ShowWindowAsync(window, SW_RESTORE);
 
             if (SetForegroundWindow(window))
             {
-                Log.Info(LogCategory, $"单击歌词栏：已把播放器窗口叫到前台（进程 {string.Join('/', candidates)}）。");
+                Log.Info(LogCategory, hidden
+                    ? $"单击歌词栏：播放器原先藏在托盘里，已把窗口重新显示并叫到前台（进程 {string.Join('/', candidates)}）。"
+                    : $"单击歌词栏：已把播放器窗口叫到前台（进程 {string.Join('/', candidates)}）。");
                 return true;
             }
 
@@ -182,11 +196,19 @@ public static class PlayerActivationService
     }
 
     /// <summary>
-    /// 在正在运行的进程里找第一个匹配且有主窗口的那个。
-    /// Picks the first matching running process that has a main window.
+    /// 一个候选项：进程 id 与（能读到的话）可执行文件全路径。
+    /// One candidate: the process id and, when readable, the executable's full path.
     /// </summary>
-    private static IntPtr FindPlayerWindow(IReadOnlyList<string> candidates)
+    private readonly record struct PlayerProcess(uint Id, string? ExecutablePath);
+
+    /// <summary>
+    /// 在正在运行的进程里挑出与候选名匹配的那些。
+    /// Picks the running processes whose names match the candidates.
+    /// </summary>
+    private static List<PlayerProcess> CollectMatchingProcesses(IReadOnlyList<string> candidates)
     {
+        var result = new List<PlayerProcess>();
+
         Process[] processes;
         try
         {
@@ -195,10 +217,8 @@ public static class PlayerActivationService
         catch (Exception ex)
         {
             Log.Warn(LogCategory, $"枚举进程失败：{ex.Message}");
-            return IntPtr.Zero;
+            return result;
         }
-
-        var fallback = IntPtr.Zero;
 
         foreach (var process in processes)
         {
@@ -207,18 +227,7 @@ public static class PlayerActivationService
                 if (!IsCandidate(candidates, process))
                     continue;
 
-                var handle = process.MainWindowHandle;
-                if (handle == IntPtr.Zero)
-                    continue;
-
-                // 最小化时 MainWindowHandle 仍然有效，优先用它；没有窗口的进程（只跑托盘）留作最后手段也没有意义。
-                // MainWindowHandle stays valid while minimised, so it is used directly; a process with no window at all (a
-                // tray-only helper) leaves nothing to activate.
-                if (IsWindowVisible(handle))
-                    return handle;
-
-                if (fallback == IntPtr.Zero)
-                    fallback = handle;
+                result.Add(new PlayerProcess((uint)process.Id, TryGetExecutablePath(process)));
             }
             catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
             {
@@ -231,7 +240,133 @@ public static class PlayerActivationService
             }
         }
 
-        return fallback;
+        return result;
+    }
+
+    /// <summary>
+    /// 在这些进程的**所有顶层窗口**里挑一个来激活，可见的优先、其次按面积。
+    ///
+    /// 不能再用 <see cref="Process.MainWindowHandle"/>：「关闭到托盘」是把窗口 <c>SW_HIDE</c> 掉，
+    /// 而 MainWindowHandle 只认可见的主窗口——藏起来之后它直接返回 0，于是"最小化能点开、最小化到托盘点不开"。
+    /// 这里改用 <c>EnumWindows</c> 按进程 id 找，可见与否都收，再排除托盘辅助用的工具窗口。
+    /// The window is picked among **all top-level windows** of those processes, visible ones first and larger ones next.
+    ///
+    /// <see cref="Process.MainWindowHandle"/> cannot be used any more: "close to tray" hides the window with <c>SW_HIDE</c>
+    /// while MainWindowHandle only ever reports a *visible* main window, so it returns 0 as soon as the player is in the tray —
+    /// which is exactly the "minimising works, minimising to the tray does not" symptom. <c>EnumWindows</c> is used instead,
+    /// filtered by process id, accepting hidden windows and excluding the tool windows a tray helper creates.
+    /// </summary>
+    private static IntPtr FindBestWindow(IReadOnlyList<PlayerProcess> matches)
+    {
+        var processIds = new HashSet<uint>();
+        foreach (var match in matches)
+            processIds.Add(match.Id);
+
+        var best = IntPtr.Zero;
+        var bestScore = long.MinValue;
+
+        EnumWindows((hwnd, _) =>
+        {
+            if (GetWindowThreadProcessId(hwnd, out var processId) == 0 || !processIds.Contains(processId))
+                return true;
+
+            // 托盘辅助窗口（通知气泡、隐藏的消息窗）都是工具窗口，激活它们毫无意义。
+            // Tray helper windows (notification popups, hidden message windows) are tool windows; activating them is pointless.
+            if ((GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0)
+                return true;
+
+            if (!GetWindowRect(hwnd, out var rect))
+                return true;
+
+            var width = rect.Right - rect.Left;
+            var height = rect.Bottom - rect.Top;
+
+            // 0×0 或极小的顶层窗口是隐藏的中间层，不是用户认得的那块面板。
+            // Zero-area and tiny top-level windows are hidden plumbing, not the panel the user knows.
+            if (width < 120 || height < 60)
+                return true;
+
+            var visible = IsWindowVisible(hwnd);
+
+            // 可见的压过一切（哪怕面积小一点），同类之间再比面积：主面板通常远大于歌词窗、设置窗这类附属窗口。
+            // Visibility outweighs everything (even a smaller area); within the same class the area decides, because the main
+            // panel is far larger than the little sub-windows a player also owns (lyrics, settings).
+            var score = (visible ? 1L << 40 : 0) + (long)width * height;
+            if (score <= bestScore)
+                return true;
+
+            bestScore = score;
+            best = hwnd;
+            return true;
+        }, IntPtr.Zero);
+
+        return best;
+    }
+
+    /// <summary>
+    /// 进程还在、但一个像样的窗口都没有——有些播放器"关闭到托盘"时会把面板整个销毁，靠托盘图标或第二次启动重建。
+    /// 这些播放器都是单实例的：再启动一次同一个 exe，它就自己把那块面板叫回来，而不是开出第二个程序。
+    /// The process is alive but owns no decent window: some players destroy the panel when closing to the tray and rebuild it
+    /// from the tray icon or on a second launch. They are all single-instance, so starting the same executable again makes the
+    /// player bring the panel back rather than opening a second copy.
+    /// </summary>
+    private static bool TryRelaunch(IReadOnlyList<PlayerProcess> matches)
+    {
+        foreach (var match in matches)
+        {
+            var path = match.ExecutablePath;
+            if (string.IsNullOrEmpty(path) || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!IsSingleInstancePlayer(Path.GetFileNameWithoutExtension(path)))
+                continue;
+
+            if (!File.Exists(path))
+                continue;
+
+            try
+            {
+                Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+                Log.Info(LogCategory, $"播放器没有窗口，重新启动 {path}（单实例播放器会自己把面板叫回来）。");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(LogCategory, $"重新启动播放器失败（{path}）：{ex.Message}");
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 只对单实例的播放器重新启动：多实例的（VLC、mpv、浏览器）再来一次只会多开一个窗口，反而更乱。
+    /// Only single-instance players are relaunched: for multi-instance ones (VLC, mpv, browsers) a second launch just opens
+    /// another window, which is worse than doing nothing.
+    /// </summary>
+    private static bool IsSingleInstancePlayer(string? processName)
+    {
+        if (string.IsNullOrEmpty(processName))
+            return false;
+
+        return processName.ToLowerInvariant() switch
+        {
+            "cloudmusic" or "qqmusic" or "kugou" or "sodamusic" or "spotify" or "music.ui" or "wmplayer" or "foobar2000" => true,
+            _ => false
+        };
+    }
+
+    /// <summary>读进程的可执行文件全路径；读不到（权限、进程已退出）返回 null。/ The executable's full path, or null.</summary>
+    private static string? TryGetExecutablePath(Process process)
+    {
+        try
+        {
+            return process.MainModule?.FileName;
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+        {
+            return null;
+        }
     }
 
     /// <summary>
@@ -345,4 +480,14 @@ public static class PlayerActivationService
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    /// <summary>
+    /// 单独声明一个带 <c>out</c> 的版本：共享的 <c>NativeMethods</c> 里那个只读线程 id、不读进程 id，
+    /// 而这里正是要按进程 id 认窗口。两个签名互不冲突（分属不同类）。
+    /// A separate overload with <c>out</c>: the one in the shared <c>NativeMethods</c> reports the thread id and not the
+    /// process id, which is exactly what this file needs to attribute a window to a process. The two signatures do not clash
+    /// because they live in different classes.
+    /// </summary>
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 }

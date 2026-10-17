@@ -209,6 +209,15 @@ public partial class TaskbarLyricsWindow : Window
     /// <summary>已写入窗口的左边界（物理像素），用来避免每帧重复记位置日志。null 表示还没写过。</summary>
     private int? _appliedLeftPx;
 
+    /// <summary>上一次摆好的竖排上边界（物理像素）。竖排时栏沿纵向放，对齐方式决定的是上边界而不是左边界。</summary>
+    private int? _appliedTopPx;
+
+    /// <summary>上一次应用的是不是竖排（任务栏停靠在屏幕左侧或右侧）。朝向一变，整个窗口的长宽要互换。</summary>
+    private bool _appliedVertical;
+
+    /// <summary>上一次应用的歌词栏厚度（DIP）；横排时是高度，竖排时是宽度，都是任务栏本身的厚度。</summary>
+    private double _appliedThicknessDip = -1;
+
     /// <summary>用户可见的显隐状态。窗口的实际不透明度还受"渲染器是否就绪"约束，见 <see cref="SetBarVisible"/>。</summary>
     private bool _barVisible;
 
@@ -390,10 +399,23 @@ public partial class TaskbarLyricsWindow : Window
 
         // 指针的横向位置要留到 DIP 里：判定"在哪一块上"用的是 DIP 布局，而 lParam 是物理像素。
         // 换算只做一次，之后每像素移动只是一次浮点除法加一次比较。
+        //
+        // 竖排时窗口内容整体绕中心转 -90°，指针的"纵向"才对应布局的横向：窗口从上往下走，就是布局从左往右的反方向，
+        // 所以布局横坐标 = 布局长度 - 指针纵坐标。不这么换算，"指针压在曲目信息上"会按横排的错位置判定，
+        // 磨砂和按钮会跟指针错位一整条栏。
         // The pointer's horizontal position is kept in DIP: the region decision works in the DIP layout while lParam is in
         // physical pixels. The conversion happens once, after which each pixel of movement costs a division and a comparison.
+        //
+        // Vertically the content is rotated -90° about its centre, so the pointer's *vertical* offset is what maps onto the
+        // layout's horizontal axis: going down the window walks backwards along the layout, hence layout x = layout height minus
+        // pointer y. Without that mapping the "pointer is over the track info" test would use horizontal-mode coordinates and the
+        // frost and buttons would sit a whole bar away from the pointer.
         var wasInside = _pointerInsideWindow;
-        _pointerInsideDipX = inside && position is { } q ? q.X / Math.Max(1, dpi.DpiScaleX) : null;
+        _pointerInsideDipX = inside && position is { } q
+            ? _appliedVertical
+                ? Math.Clamp((ActualHeight * dpi.DpiScaleY - q.Y) / Math.Max(1, dpi.DpiScaleY), 0, ActualHeight)
+                : q.X / Math.Max(1, dpi.DpiScaleX)
+            : null;
         _pointerInsideWindow = inside;
 
         // 区域变化也要往下走：指针从歌词划到曲目信息上时"在窗口内"没变，但磨砂该换到另一块。
@@ -455,7 +477,7 @@ public partial class TaskbarLyricsWindow : Window
         if (cluster is null || cluster.ActualWidth <= 0)
             return false;
 
-        var origin = cluster.TranslatePoint(new Point(0, 0), this);
+        var origin = cluster.TranslatePoint(new Point(0, 0), RootGrid);
         return x >= origin.X && x <= origin.X + cluster.ActualWidth;
     }
 
@@ -837,7 +859,51 @@ public partial class TaskbarLyricsWindow : Window
         }
 
         if (!_docked)
+        {
             Dock();
+            return;
+        }
+
+        // 任务栏的厚度和朝向会在停靠期间变：用户把任务栏挪到屏幕左侧 / 右侧、改小图标、或者换个更厚的任务栏样式。
+        // 句柄没变，所以上面那条"窗口何时失效"的检查永远等不到——必须每次主动读一次矩形，尺寸一变就把朝向和
+        // 尺寸重新算一遍。
+        // The taskbar's thickness and orientation can change while the bar stays docked: the user moves it to the left or right
+        // edge, switches to small icons, or picks a thicker taskbar style. The handle never changes, so the invalidation check
+        // above would wait forever — the rect is read on every tick instead and a size change re-derives the orientation and
+        // the geometry.
+        if (TryReadTaskbarRect(out var current) &&
+            (current.Width != _target.Width || current.Height != _target.Height || current.IsVertical != _target.IsVertical))
+        {
+            Log.Info("Taskbar", $"任务栏尺寸变化：{_target.Width}×{_target.Height} → {current.Width}×{current.Height}，重新排布歌词栏。");
+            _target = current;
+            ApplyGeometry();
+        }
+    }
+
+    /// <summary>
+    /// 读一次当前停靠的那个任务栏的矩形，并带上它所在的显示器缩放（物理像素 / DIP 换算要用）。
+    /// Reads the docked taskbar's current rect along with the DPI scale of its monitor (needed to convert physical pixels to DIP).
+    /// </summary>
+    private bool TryReadTaskbarRect(out TaskbarTarget target)
+    {
+        target = _target;
+
+        if (!_dock.TryGetTaskbarRect(_target.Handle, out var rect))
+            return false;
+
+        var width = rect.Right - rect.Left;
+        var height = rect.Bottom - rect.Top;
+        if (width <= 0 || height <= 0)
+            return false;
+
+        target = _target with
+        {
+            Width = width,
+            Height = height,
+            DpiScale = _dock.GetDpiScale(_target.Handle)
+        };
+
+        return true;
     }
 
     private TaskbarTarget? FindMatchingTaskbar()
@@ -1035,10 +1101,19 @@ public partial class TaskbarLyricsWindow : Window
     }
 
     /// <summary>
-    /// 计算并应用窗口几何。宽度按当前行与第二行里更长的那条量出来（关闭固定宽度时），
-    /// 高度取任务栏在 DIP 下的高度，让歌词栏正好铺满任务栏的厚度。
-    /// Computes and applies the window geometry. The width comes from whichever of the active line and the second row is longer
-    /// (unless a fixed width is configured), and the height is the taskbar's height in DIP so the bar fills the taskbar thickness.
+    /// 计算并应用窗口几何。
+    ///
+    /// 横排（任务栏在底部 / 顶部）：长边是宽度，按当前行与第二行里更长的那条量出来（关闭固定宽度时），
+    /// 短边取任务栏在 DIP 下的高度，让歌词栏正好铺满任务栏的厚度。
+    /// 竖排（任务栏在左侧 / 右侧）：长宽互换——短边是任务栏的宽度（厚度），长边仍然是量出来的歌词长度变成高度，
+    /// 内容由 XAML 里那个 <c>LayoutTransform</c> 绕中心转 -90°，于是"字从下往上读"。
+    /// Computes and applies the window geometry.
+    ///
+    /// Horizontal (taskbar at the bottom or top): the long side is the width, measured from whichever of the active line and
+    /// the second row is longer (unless a fixed width is configured), and the short side is the taskbar's height in DIP so the
+    /// bar fills the taskbar thickness. Vertical (taskbar on the left or right): the two swap — the short side is the taskbar's
+    /// width (its thickness) and the measured lyric length becomes the height, with the content rotated -90° about its centre
+    /// by the <c>LayoutTransform</c> in the XAML, so the text reads bottom-to-top.
     /// </summary>
     private void ApplyGeometry()
     {
@@ -1046,12 +1121,32 @@ public partial class TaskbarLyricsWindow : Window
             return;
 
         var settings = SettingsManager.Current;
-        var widthDip = MeasureBarWidthDip(_frame, settings);
-        var heightDip = Math.Max(16, _target.Height / Math.Max(1, _target.DpiScale));
+        var longDip = MeasureBarWidthDip(_frame, settings);
+        var thicknessDip = ResolveBarHeightDip();
+        var vertical = _target.IsVertical;
 
-        if (Math.Abs(widthDip - _appliedWidthDip) > 0.5)
+        if (vertical != _appliedVertical)
         {
-            _appliedWidthDip = widthDip;
+            _appliedVertical = vertical;
+            ContentRotation.Angle = vertical ? -90 : 0;
+            // 朝向变了，即使长边一个像素都没变，窗口的长宽也得互换，所以把上次的量清零逼下面重设。
+            // The orientation changed: even with the long side unchanged, the window's two dimensions swap, so the memo is
+            // cleared to force the reassignment below.
+            _appliedWidthDip = -1;
+            _appliedThicknessDip = -1;
+
+            Log.Info("Taskbar", vertical
+                ? $"任务栏是竖向（{_target.Width}×{_target.Height}），歌词栏改成竖排，文字从下往上读。"
+                : $"任务栏是横向（{_target.Width}×{_target.Height}），歌词栏恢复横排。");
+        }
+
+        var widthDip = vertical ? thicknessDip : longDip;
+        var heightDip = vertical ? longDip : thicknessDip;
+
+        if (Math.Abs(longDip - _appliedWidthDip) > 0.5 || Math.Abs(thicknessDip - _appliedThicknessDip) > 0.5)
+        {
+            _appliedWidthDip = longDip;
+            _appliedThicknessDip = thicknessDip;
             Width = widthDip;
             Height = heightDip;
         }
@@ -1060,7 +1155,7 @@ public partial class TaskbarLyricsWindow : Window
         // 歌词框的宽度会随曲目信息块变化，这里每帧重算，按钮就永远待在歌词框正中间。
         // The button cluster is centred inside the lyrics box, so its left margin is that box's left edge and its right margin is
         // the layout's own padding. The box changes width with the track-info block, so this is recomputed every frame and the
-        // buttons stay dead centre in it.
+        // buttons stay dead centre in it. Both remain in *layout* coordinates, so the rotation does not affect them.
         var paneLeftDip = ResolveLyricsPaneLeftDip(settings);
         if (Math.Abs(paneLeftDip - _appliedTransportLeftDip) > 0.5)
         {
@@ -1073,6 +1168,24 @@ public partial class TaskbarLyricsWindow : Window
         var scale = Math.Max(1, _target.DpiScale);
         var widthPx = (int)Math.Round(widthDip * scale);
         var heightPx = (int)Math.Round(heightDip * scale);
+
+        if (vertical)
+        {
+            // 竖条贴着任务栏的那一层：横向位置固定为 0（铺满任务栏厚度），纵向按对齐方式算。
+            // The vertical strip sits flush with the taskbar: the horizontal offset is always 0 (it spans the taskbar's
+            // thickness) while the vertical offset follows the alignment setting.
+            var topPx = ResolveBarTopPx(settings, heightPx, scale);
+
+            if (_appliedTopPx is not int appliedTop || Math.Abs(topPx - appliedTop) >= 4)
+            {
+                _appliedTopPx = topPx;
+                Log.Info("Taskbar", $"歌词栏竖排位置: {settings.LyricsBarAlignment}，上边界 {topPx}px，高度 {heightPx}px（任务栏高 {_target.Height}px）");
+            }
+
+            _dock.SetPosition(_hwnd, 0, topPx, widthPx, heightPx);
+            return;
+        }
+
         var leftPx = ResolveBarLeftPx(settings, widthPx, scale);
 
         // 位置变化才记日志：任务栏宽度、歌词长度都会让位置每帧微调，不设阈值会把日志刷满。
@@ -1086,26 +1199,34 @@ public partial class TaskbarLyricsWindow : Window
     }
 
     /// <summary>
-    /// 按停靠位置算出歌词栏左边界的物理像素。左/右对齐时偏移量是"边距"，居中对齐时是"微调量"；
-    /// 结果一律夹在任务栏范围内，避免用户把偏移量调大后歌词栏整个跑到屏幕外看不见。
-    /// Resolves the bar's left edge in physical pixels from the docking position. For left/right the offset acts as a margin;
-    /// for centre it acts as a nudge. The result is always clamped inside the taskbar so a large offset cannot push the bar
-    /// off screen where it would silently vanish.
+    /// 按停靠位置算出歌词栏的起始偏移（物理像素）。竖排时算的是上边界、拿任务栏高度做可用空间，
+    /// 参数与语义跟横向版本完全一致，所以两种朝向共用同一套"靠边 / 居中 / 偏移量"规则。
+    /// Resolves the bar's leading offset in physical pixels from the docking position. Vertical mode computes the top edge and
+    /// uses the taskbar height as the available space; the parameters and semantics match the horizontal version exactly, so
+    /// both orientations share one set of "edge / centre / offset" rules.
     /// </summary>
-    private int ResolveBarLeftPx(AppSettings settings, int widthPx, double scale)
+    private static int ResolveLeadingOffsetPx(LyricsBarAlignment alignment, double offsetDip, int available, double scale)
     {
-        var offsetPx = (int)Math.Round(settings.TaskbarOffsetDip * scale);
-        var available = Math.Max(0, _target.Width - widthPx);
+        var offsetPx = (int)Math.Round(offsetDip * scale);
+        var free = Math.Max(0, available);
 
-        var left = settings.LyricsBarAlignment switch
+        var offset = alignment switch
         {
-            LyricsBarAlignment.Center => (available / 2) + offsetPx,
-            LyricsBarAlignment.Right => available - offsetPx,
+            LyricsBarAlignment.Center => (free / 2) + offsetPx,
+            LyricsBarAlignment.Right => free - offsetPx,
             _ => offsetPx
         };
 
-        return Math.Clamp(left, 0, available);
+        return Math.Clamp(offset, 0, free);
     }
+
+    /// <summary>横排时歌词栏的左边界（物理像素）。/ The bar's left edge in physical pixels, horizontal mode.</summary>
+    private int ResolveBarLeftPx(AppSettings settings, int widthPx, double scale)
+        => ResolveLeadingOffsetPx(settings.LyricsBarAlignment, settings.TaskbarOffsetDip, _target.Width - widthPx, scale);
+
+    /// <summary>竖排时歌词栏的上边界（物理像素）。/ The bar's top edge in physical pixels, vertical mode.</summary>
+    private int ResolveBarTopPx(AppSettings settings, int heightPx, double scale)
+        => ResolveLeadingOffsetPx(settings.LyricsBarAlignment, settings.TaskbarOffsetDip, _target.Height - heightPx, scale);
 
     private double MeasureBarWidthDip(LyricsPresentationFrame frame, AppSettings settings)
     {
@@ -1143,8 +1264,15 @@ public partial class TaskbarLyricsWindow : Window
             settings.LyricsMaxWidthDip);
     }
 
-    /// <summary>歌词栏高度（DIP），由任务栏的物理高度换算而来。/ Bar height in DIP, derived from the taskbar's physical height.</summary>
-    private double ResolveBarHeightDip() => Math.Max(16, _target.Height / Math.Max(1, _target.DpiScale));
+    /// <summary>
+    /// 歌词栏的厚度（DIP）——横排时是高度，竖排时是宽度，量到的都是**任务栏本身的厚度**：
+    /// 任务栏在底部 / 顶部时是它的高度，在左侧 / 右侧时是它的宽度。封面、提示字号这些跟随厚度的量因此也都对得上。
+    /// The bar's thickness in DIP — its height when horizontal, its width when vertical, always the taskbar's own thickness:
+    /// the taskbar's height when docked at the bottom or top, its width when docked on the left or right. Everything that
+    /// follows the thickness (artwork size, hint font size) therefore keeps working in both orientations.
+    /// </summary>
+    private double ResolveBarHeightDip()
+        => Math.Max(16, (_target.IsVertical ? _target.Width : _target.Height) / Math.Max(1, _target.DpiScale));
 
     /// <summary>
     /// 封面边长（DIP）。跟着歌词栏高度走而不是写死：任务栏高度从小图标到大任务栏能差一倍，

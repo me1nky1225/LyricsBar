@@ -2,6 +2,29 @@
 
 本项目从 AF Media Bar 抽离后自行编号。日期为本地构建日期。
 
+## 1.6.1 — 2026-10-17
+
+**新增：任务栏在屏幕左侧 / 右侧时歌词栏自动竖排；修复播放器最小化到系统托盘后单击歌词栏叫不出播放器**
+
+- **任务栏竖排**（新增）：任务栏停靠在屏幕左侧或右侧时，歌词栏自动转 90°——短边取任务栏厚度、长边仍按歌词长度量，
+  文字从下往上读，进度条贴到竖条靠屏幕内侧的那条边。实现落在 `TaskbarLyricsWindow.xaml` 的
+  `<Grid.LayoutTransform>`（`RotateTransform x:Name="ContentRotation"`，横排 0° / 竖排 -90°）：用 LayoutTransform 而不是
+  RenderTransform，子元素的 `DesiredSize` 会一起转，所以渲染器、进度条、按钮、磨砂分区全都不用改，仍然按"长边 × 厚度"排版。
+  `ApplyGeometry` 把长边与厚度在两种朝向下互换；`ResolveBarHeightDip` 改成按朝向取任务栏的厚度（竖排取宽度）。
+  指针坐标也要跟着换轴：竖排时窗口的"纵向"对应布局的横向，`UpdatePointerInside` 用 `布局长度 - 指针纵坐标` 换算，
+  否则分区磨砂与按钮会跟指针错开一整条栏；`IsPointerOverTransportCluster` 改用 `RootGrid` 坐标（旋转后的窗口坐标不可比）。
+  停靠位置的三档（靠左 / 居中 / 靠右）与位置偏移在竖排下沿竖直方向生效，抽成 `ResolveLeadingOffsetPx` 供两个朝向共用。
+  `TaskbarTarget` 不再标「竖向，暂不支持」。任务栏朝向 / 厚度会在停靠期间变（用户挪到左右侧、换小图标），
+  `OnTaskbarWatchTick` 每次读一次任务栏矩形，尺寸或朝向一变就重排。
+- **托盘里的播放器也能叫出来**（修复）：v1.6.0 的 `PlayerActivationService` 用 `Process.MainWindowHandle` 找播放器的窗口，
+  而它只返回**可见**的主窗口——「关闭到系统托盘」会把窗口 `SW_HIDE` 掉，句柄立刻变 0，于是最小化到托盘后单击歌词栏毫无反应
+  （缩到任务栏 / 最小化时窗口只是最小化、仍然可见，所以那时是好的）。现在改成用 `EnumWindows` 遍历该进程的所有顶层窗口，
+  跳过 `WS_EX_TOOLWINDOW`（输入法、托盘提示这类不可见的辅助窗口）与过小的窗口（小于 120×60 的托盘弹窗），
+  优先可见窗口、其次面积最大的那个，再对它 `ShowWindowAsync(SW_RESTORE)` + `SetForegroundWindow`；
+  只在确实找不到窗口、且进程是单实例的播放器上才退到"重新拉起 exe"（多实例的播放器不做这一步，免得开出第二个窗口）。
+- **探针**：新增 `tools/VerticalLayoutProbe`（22 项：任务栏矩形 → 朝向、竖向标签不再写「暂不支持」、
+  `ResolveLeadingOffsetPx` 三档对齐 × 偏移量 × 缩放 × 夹取、旋转布局的关键字段仍在）。
+
 ## 1.6.0 — 2026-10-17
 
 **新增：单击歌词栏打开正在放歌的播放器；曲目信息有了自己的一套字体 / 字形 / 字号 / 颜色（不再跟歌词捆在一起）；

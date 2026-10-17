@@ -24,6 +24,11 @@ internal static partial class NativeMethods
     /// <summary>扩展样式：点击不激活本窗口。/ Extended style: clicking does not activate this window.</summary>
     internal const int WS_EX_NOACTIVATE = 0x08000000;
 
+    /// <summary>扩展样式：工具窗口（不出现在任务栏与 Alt+Tab 里）。找播放器主窗口时要按它排除托盘辅助窗口。
+    /// Extended style: a tool window (absent from the taskbar and Alt+Tab). Excluded when looking for a player's main
+    /// window, so the tray helpers do not win the search.</summary>
+    internal const int WS_EX_TOOLWINDOW = 0x00000080;
+
     // SetWindowPos 标志
     internal const uint SWP_NOSIZE = 0x0001;
     internal const uint SWP_NOMOVE = 0x0002;

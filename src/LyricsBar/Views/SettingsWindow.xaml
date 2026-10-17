@@ -620,6 +620,8 @@
                         </Grid>
                         <TextBlock Style="{StaticResource CardHint}"
                                    Text="选好停靠位置后，用下面的偏移量微调：靠左 / 靠右时它是距该侧边缘的距离，居中时它是左右微调量。" />
+                        <TextBlock Style="{StaticResource CardHint}"
+                                   Text="任务栏挪到屏幕左侧 / 右侧时，歌词栏自动改成竖排（文字从下往上读），这几个选项沿竖直方向生效。" />
 
                         <CheckBox x:Name="FixedWidthCheck" Content="使用固定栏宽" />
 
