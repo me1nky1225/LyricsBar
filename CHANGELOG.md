@@ -2,6 +2,21 @@
 
 本项目从 AF Media Bar 抽离后自行编号。日期为本地构建日期。
 
+## 1.6.3 — 2026-10-17
+
+**修：播放器「关闭到托盘」时点一下会弹出一个纯黑的空窗口**
+
+- 起因：1.6.1 为了能叫醒藏在托盘里的播放器，改成「该进程的**所有顶层窗口**里，可见的优先、其次面积最大」。
+  网易云关到托盘后真正的面板已经销毁，进程里只剩一块 Chromium 的内部窗口 `Chrome_WidgetWin_0`（**标题为空**、
+  状态隐藏）。旧规则认为「隐藏也行」，于是把它 `SW_SHOW` 了出来——屏幕上就多出一块没有标题、没有内容的黑框。
+- 修法（`PlayerActivationService`）：候选窗口必须先过 `IsPanelCandidate`——**标题必须非空**，且类名不能是 Chromium
+  的部件类（`Chrome_WidgetWin_0`、`Chrome_RenderWidgetHostHWND`、`Intermediate D3D Window`、`MSCTFIME UI`、
+  `Default IME`、`GDI+ Hook Window Class`）。`Chrome_WidgetWin_1` 特意放行：网易云这类播放器的主面板本身就是这个类。
+- 一个像样的窗口都没有时，行为回到 1.6.1 定下的那条：单实例播放器重新启动一次，让它自己把面板叫回来
+  （日志会写「…或只剩 Chromium 的空壳窗口」）。托盘里的播放器因此从「先弹黑框、再点一次才回来」变成一次点到位。
+- 探针：`tools/PlayerActivationProbe` 增加 9 项类名判定（`Chrome_WidgetWin_0`/小写/渲染宿主/D3D/IME 判为部件，
+  `Chrome_WidgetWin_1`、`OrpheusBrowserHost`（QQ 音乐）与空类名判为面板），共 28 项 PASS。
+
 ## 1.6.2 — 2026-10-17
 
 **移除 1.6.1 的侧边竖排；单击歌词栏叫播放器明显变快（播放器缩在任务栏里时尤其明显）**

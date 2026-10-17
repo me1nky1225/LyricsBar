@@ -60,7 +60,7 @@ $excludedSegments = @('\bin\', '\obj\')
 
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add('# LyricsBar - GitHub upload manifest (repository files)')
-$lines.Add('# release version: 1.6.2 | repository files generated: 2026-10-17 | source root: LyricsBar')
+$lines.Add('# release version: 1.6.3 | repository files generated: 2026-10-17 | source root: LyricsBar')
 $lines.Add('# columns: path,bytes,modified,sha256,note')
 
 $total = 0

@@ -108,7 +108,7 @@ public static class PlayerActivationService
 
         if (window == IntPtr.Zero && matches.Count > 0 && TryRelaunch(matches))
         {
-            Log.Info(LogCategory, $"单击歌词栏：播放器进程在，但已经没有窗口（关到托盘时销毁了面板），已重新启动一次把它叫回来（{string.Join('/', candidates)}；{timings}）。");
+            Log.Info(LogCategory, $"单击歌词栏：播放器进程在，但已经没有像样的窗口（关到托盘时销毁了面板，或只剩 Chromium 的空壳窗口），已重新启动一次把它叫回来（{string.Join('/', candidates)}；{timings}）。");
             return true;
         }
 
@@ -325,6 +325,11 @@ public static class PlayerActivationService
             if ((GetWindowLong(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0)
                 return true;
 
+            // Chromium 的部件窗口不是用户认得的那块面板：显示出来就是一块纯黑的空框。见 IsPanelCandidate。
+            // A Chromium helper widget is not the panel the user knows: showing one puts a blank black frame on screen.
+            if (!IsPanelCandidate(hwnd))
+                return true;
+
             if (!GetWindowRect(hwnd, out var rect))
                 return true;
 
@@ -351,6 +356,62 @@ public static class PlayerActivationService
         }, IntPtr.Zero);
 
         return best;
+    }
+
+    /// <summary>
+    /// 只把"像播放器面板"的窗口算作候选：标题非空，且不是 Chromium 的部件窗口。
+    ///
+    /// 起因是一个真实 bug：网易云「关闭到托盘」后进程还在，但真正的面板已经销毁，只剩 Chromium 的
+    /// <c>Chrome_WidgetWin_0</c>（标题为空、状态隐藏）。旧逻辑"隐藏也行"把它 <c>SW_SHOW</c> 出来，
+    /// 屏幕上就多出一块纯黑的空框——没有标题、没有内容，只有一个关不掉的窗口。
+    /// Only windows that look like a player panel are candidates: non-empty title, and not a Chromium helper widget.
+    ///
+    /// This comes from a real bug: after NetEase "closes to tray" the process is still alive but the real panel is gone,
+    /// leaving only a Chromium <c>Chrome_WidgetWin_0</c> (empty title, hidden). The old "hidden is fine too" rule showed it
+    /// with <c>SW_SHOW</c>, which puts a blank black frame on screen — no title, no content, just a window.
+    ///
+    /// 标题为空的普通窗口同样被排除：真正的面板（网易云、QQ 音乐、酷狗、Spotify、VLC、foobar2000）都带标题，
+    /// 而靠标题也能躲开播放器内嵌的其它无题名窗口。排掉之后如果没有像样的窗口，调用方会走"重新启动"这条路——
+    /// 单实例播放器第二次启动会把面板叫回来，这才是"关到托盘"状态下正确的动作。
+    /// Ordinary windows with an empty title are excluded for the same reason: real panels carry a title, and the title check
+    /// also skips the untitled sub-windows players embed. With no decent window left, the caller relaunches instead — for a
+    /// single-instance player a second launch brings the panel back, which is the right move in the tray state.
+    /// </summary>
+    private static bool IsPanelCandidate(IntPtr window)
+    {
+        var title = new System.Text.StringBuilder(256);
+        _ = GetWindowText(window, title, title.Capacity);
+        if (title.Length == 0 || string.IsNullOrWhiteSpace(title.ToString()))
+            return false;
+
+        var className = new System.Text.StringBuilder(256);
+        _ = GetClassName(window, className, className.Capacity);
+        return !IsHelperWindowClass(className.ToString());
+    }
+
+    /// <summary>
+    /// Chromium 的内部窗口类。它们自己不是界面，只是渲染/输入/中转用的部件；显示或激活它们只会得到空框。
+    /// <c>Chrome_WidgetWin_1</c> 不在名单里：不少播放器（含网易云）的主面板本身就是这个类。
+    /// Chromium's internal window classes. They are not UI but rendering / input / plumbing widgets, and showing or activating
+    /// one only yields an empty frame. <c>Chrome_WidgetWin_1</c> is deliberately absent: several players (NetEase included) use
+    /// it for the real panel.
+    ///
+    /// 公开是为了命令行自检能直接对类名断言（和 <see cref="ResolveProcessNameCandidates"/> 同理），正常代码不需要调它。
+    /// Public so the command-line self-test can assert on class names (same reason as <see cref="ResolveProcessNameCandidates"/>);
+    /// normal code never calls it.
+    /// </summary>
+    public static bool IsHelperWindowClass(string? className)
+    {
+        if (string.IsNullOrWhiteSpace(className))
+            return false;
+
+        var name = className.Trim();
+        return name.Equals("Chrome_WidgetWin_0", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Chrome_RenderWidgetHostHWND", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Intermediate D3D Window", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("MSCTFIME UI", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("Default IME", StringComparison.OrdinalIgnoreCase)
+            || name.Equals("GDI+ Hook Window Class", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

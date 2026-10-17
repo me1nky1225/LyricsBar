@@ -61,10 +61,30 @@ var packaged = PlayerActivationService.ResolveProcessNameCandidates(@"C:\Apps\Mu
 Check("packaged '!App' is not a process candidate", !packaged.Contains("App", StringComparer.OrdinalIgnoreCase),
     $"[{string.Join(" | ", packaged)}]");
 
-// 不含 '!' 的标识不会走 AUMID 激活；这里只确认推导本身不抛、不返回奇怪的东西。
+// 含 '!' 的标识不会走 AUMID 激活；这里只确认推导本身不抛、不返回奇怪的东西。
 var unknown = PlayerActivationService.ResolveProcessNameCandidates("SomeUnknownPlayer").ToArray();
 Check("unknown identifier keeps its own name", unknown.Length == 1 && unknown[0] == "SomeUnknownPlayer",
     $"[{string.Join(" | ", unknown)}]");
+
+// Chromium 的部件窗口类要被认出来：把 Chrome_WidgetWin_0 当成面板显示，用户得到的就是一块纯黑的空框。
+// Chrome_WidgetWin_1 必须放行——网易云这类播放器的主面板本身就是这个类。
+// Chromium helper window classes must be recognised: treating Chrome_WidgetWin_0 as the panel shows a blank black frame.
+// Chrome_WidgetWin_1 must pass — players such as NetEase use it for the real panel.
+void CheckHelper(string className, bool expectedHelper)
+{
+    var actual = PlayerActivationService.IsHelperWindowClass(className);
+    Check($"helper class {className}", actual == expectedHelper, actual ? "helper" : "panel");
+}
+
+CheckHelper("Chrome_WidgetWin_0", true);
+CheckHelper("chrome_widgetwin_0", true);
+CheckHelper("Chrome_RenderWidgetHostHWND", true);
+CheckHelper("Intermediate D3D Window", true);
+CheckHelper("MSCTFIME UI", true);
+CheckHelper("Chrome_WidgetWin_1", false);
+CheckHelper("OrpheusBrowserHost", false);
+CheckHelper("", false);
+CheckHelper(null, false);
 
 // 速度：这条流程原来用 GetProcesses() 再给每个进程读一次 MainModule（跨进程的模块查询），几百个进程就是几百次；
 // 换成就按候选名 GetProcessesByName 之后，只碰真正匹配的那几个。这里把两种做法的开销并排量一次。

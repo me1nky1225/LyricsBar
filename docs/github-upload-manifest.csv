@@ -1,16 +1,16 @@
 # LyricsBar - GitHub upload manifest (repository files)
-# release version: 1.6.2 | repository files generated: 2026-10-17 | source root: LyricsBar
+# release version: 1.6.3 | repository files generated: 2026-10-17 | source root: LyricsBar
 # columns: path,bytes,modified,sha256,note
 .gitattributes,224,2026-10-15 20:18,1f9623e178fe3a04a79facf233226efc303794d4d144e1853cd0bec2b81b9fba,line-ending normalisation (store LF)
 .gitignore,739,2026-10-15 22:02,740be10a71f10ace47fe8af9466f915d5798dd7ba9e2fce15794e82884a92db4,excludes dist/ releases/ .preview/ bin/ obj/ *.log
-CHANGELOG.md,42863,2026-10-17 17:09,2ace485a159f11b8347e000a7492a40c138811cbc2960f081a773ef4bbed0998,version history
+CHANGELOG.md,44405,2026-10-17 17:17,7eb2a4aaea08f64393625c547cc4d1d5ac0e7b6e33bc5dcacb9908d457678b6e,version history
 docs/_mdcheck.js,2267,2026-10-15 21:09,5c0a55ee56811f7070c659fbd2142fd6fcc7e619b4e3a26073c59e657cbe3be1,maintainer tool: markdown lint used on these docs
 docs/assets/bar-default.png,10133,2026-10-16 16:40,79c1ae6d711794709200bd5c18436704bfb2e21d4e24fcd5f90018ea82f1c59c,README screenshot: default bar (cover + track info + two lyric lines)
 docs/assets/bar-hover-info.png,11477,2026-10-16 16:40,feebeee8ad82f1cc43699b818af350dab01dfb28a9a8ca485f197033ff66b9f6,README screenshot: pointer over cover / track info, only that part blurred
 docs/assets/bar-hover-lyrics.png,8349,2026-10-16 16:40,bb9a934e369a567342459a365707280d10377f6f8a94690031dbc88dfac2e5b1,README screenshot: pointer over the lyrics part, only that part blurred
 docs/settings-preview.png,88246,2026-10-15 14:42,ff34f45cbc0a7d516c93c9c027928d3f700c25caead454618e238a0602d4ad5c,settings window screenshot, referenced by README.md
 LICENSE,1065,2026-10-14 20:49,5597ee0ea2fb4e6e739e596222ead49076ba093f60a944737e0a89a07a527238,MIT
-README.md,30666,2026-10-17 17:09,6478faf8533dc51e7795897aa791b98013273c7cf933f20e059125a012936daa,Chinese README (the only README in this archive)
+README.md,31148,2026-10-17 17:17,3e71facefe0427917c0b8bb770af4155fd12de1e6135155684318a8242c09022,Chinese README (the only README in this archive)
 src/LyricsBar/app.manifest,1408,2026-10-14 20:32,a04c4760834fb5e050137b29e3adf7a713a6230ffa73c462305910ba013414f5,
 src/LyricsBar/App.xaml,727,2026-10-14 20:38,d80b00d24cdced7f596a2f1fb8bb95e2434f41b3fd3b0e25ebea2ac262943987,
 src/LyricsBar/App.xaml.cs,9416,2026-10-15 18:35,c0f08be84545bce94896eb14d23dee0d04d90c4857f7df66bdb0b643dcb52db9,
@@ -76,7 +76,7 @@ src/LyricsBar/Classes/Services/MemoryLockSanityPolicy.cs,9991,2026-10-16 14:07,f
 src/LyricsBar/Classes/Services/NeteasePositionService.cs,44534,2026-10-17 17:09,250a3c4c39ffdc65fea2390e51e266f2ccc63a6736b4193a144af2b28045d1d7,
 src/LyricsBar/Classes/Services/NeteaseQueueService.cs,17751,2026-10-15 22:31,20d31fe814b41853629af387ab8c6d934cc07381cf363394eab5fc5bbb69be97,
 src/LyricsBar/Classes/Services/NeteaseSignatureChannel.cs,36303,2026-10-16 17:01,cf36fa5060628cbc58cb7ce7fbbfcd1423744adbd4dcab8f70faef8ceb02122e,
-src/LyricsBar/Classes/Services/PlayerActivationService.cs,30978,2026-10-17 17:06,359d6ca0607341c83ec6235dc08354a7b564d18ea0059d1d023610de5353d55b,
+src/LyricsBar/Classes/Services/PlayerActivationService.cs,35278,2026-10-17 17:14,d8e4c3bba8fb28abb9830ee4f4bd65b6ec6f52344e1e0405bdd0efb1bd83d0a0,
 src/LyricsBar/Classes/Services/PositionArbitrationPolicy.cs,14451,2026-10-16 13:29,48312255e48fa8b58da86ff261ea20adf16dc2707d9c72d0992021ea81f814e4,
 src/LyricsBar/Classes/Services/SmtcMediaReader.cs,56834,2026-10-16 14:31,d3fff518cf455d6151664e79cbb8a09dbae5beb1284320487b330fdfa694bcb2,
 src/LyricsBar/Classes/Services/TaskbarDockService.cs,11011,2026-10-17 17:04,9fde172be7c4bd8d46daf435da3a2f7413ed21af61f5b896e1fc5e730de2d9c8,
@@ -114,14 +114,14 @@ tools/LineCursorProbe/Program.cs,11479,2026-10-16 16:06,cf8879e72298ddf2eb92960d
 tools/MatchProbe/MatchProbe.csproj,564,2026-10-15 22:29,a7b9676a2a8fd1abd9d6b4e64be18199144df882fff605b0b5eeb0728ecefd31,NetEase queue namesake / artist verification probe
 tools/MatchProbe/Program.cs,10415,2026-10-15 22:30,2538fe1be1b7471bf5f863330e966a91f85d7ae5c599f91c448e1e3068aa8901,NetEase queue namesake / artist verification probe
 tools/PlayerActivationProbe/PlayerActivationProbe.csproj,586,2026-10-17 16:25,7ce30aaa34008205c748d9a17023486ff2b73fbfa849de5dd84534e805b48bde,
-tools/PlayerActivationProbe/Program.cs,5851,2026-10-17 17:06,b2dc9be04d00ada3982f21831e460fa3e34c3a3996d7cf788b785280f50b890e,
+tools/PlayerActivationProbe/Program.cs,6872,2026-10-17 17:14,0fb3da0cc81d65f20ce86e9737098aa3c800dc2373a5a59082577bed7ab0920d,
 tools/PositionGuardProbe/PositionGuardProbe.csproj,1347,2026-10-16 13:49,13232e7e4f19b3088ab7674023de6e5c8ead8c31139d0236bbe5ccf0f008dd3c,local-clock guard / stuck-position watchdog policy probe (27 assertions)
 tools/PositionGuardProbe/Program.cs,20550,2026-10-17 17:09,7569d7a16dc8f2f31d313ce3fe9a4dc48b8aad6b970d171ff57b1ae9834e7c9c,local-clock guard / stuck-position watchdog policy probe (27 assertions)
 tools/PositionProbe/PositionProbe.csproj,1120,2026-10-16 13:31,d1981637a99efe6a8e2921551741460c82dd789cdcbd1507aa9e24e3fb7b9301,playback-position arbitration probe (collapse / seek / track change)
 tools/PositionProbe/Program.cs,9560,2026-10-16 13:31,9555e7de253ca1fbf021b552ac7d93f6eb694ea3b4fc57c01beb3b802c82298b,playback-position arbitration probe (collapse / seek / track change)
 tools/PureMusicProbe/Program.cs,7481,2026-10-15 21:55,118782bbb11e11487434bfc21cebc0a1ed54d2078d32818fd28e4fc0073b0b3f,pure-music / no-lyrics presentation probe
 tools/PureMusicProbe/PureMusicProbe.csproj,572,2026-10-15 21:51,bfc15eb8ad7801468a57202b37ab83a8e6dc50100263be66aca62feb85521520,pure-music / no-lyrics presentation probe
-tools/regen-upload-manifest.ps1,6308,2026-10-17 17:09,b2de568b40d9fc37831654048fad29de6884a1d62a05270befc83624fee48654,regenerates this manifest
+tools/regen-upload-manifest.ps1,6308,2026-10-17 17:16,27147188c81e4a7c56a1556686a4df8dd7741de4b4014cd2c3af2036949c4e27,regenerates this manifest
 tools/SettingsRoundTrip/Program.cs,15470,2026-10-17 16:26,aaa0b89ff3919915c8027f5fd25afe9d9dd2decd9c5499d80b7138c5c7885da9,real SettingsWindow read/write round-trip harness
 tools/SettingsRoundTrip/SettingsRoundTrip.csproj,738,2026-10-15 19:24,3e2211bf2f150373a995dd54dc8e15e69f4b858ce6dc6cd2c4dc20d84aac7048,real SettingsWindow read/write round-trip harness
 tools/SignatureProbe/Program.cs,28897,2026-10-17 17:09,001626ba627fec5150a1219c3a4f79024b0f9f8832e6c1e56c35fb028245d9b0,NetEase signature channel probe: live attach, song id, streaming scan self-test
