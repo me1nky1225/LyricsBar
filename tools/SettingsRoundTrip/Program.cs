@@ -120,6 +120,56 @@ internal static class Program
             Check("reload FontItalicCheck", ((CheckBox)w5.FindName("FontItalicCheck")).IsChecked == true ? 1 : 0, 1);
             Check("reload TrackInfoWidthSlider", (int)Math.Round(((Slider)w5.FindName("TrackInfoWidthSlider")).Value), 0);
             w5.Close();
+
+            // ---- v1.6.0: 曲目信息的字体 / 字形 / 字号 / 颜色（与歌词那几项完全分开） ----
+            // 这几项和歌词的同名设置走的是两套键，所以既要验证"写进去了"，也要验证"没顺带改到歌词那一套"。
+            var w6 = new SettingsWindow(() => { });
+            var infoFont = (ComboBox)w6.FindName("TrackInfoFontCombo");
+            Check("TrackInfoFontCombo item count", infoFont.Items.Count, LyricsFontCatalog.Candidates.Count + 1);
+            Check("TrackInfoFontCombo starts with the follow-lyrics label",
+                (infoFont.Items[0] as string) == "跟随歌词字体" ? 1 : 0, 1);
+
+            var lyricColorBefore = ((TextBox)w6.FindName("ColorBox")).Text;
+            var lyricScaleBefore = (int)Math.Round(((Slider)w6.FindName("FontSizeSlider")).Value);
+
+            infoFont.SelectedIndex = 3;
+            CheckDiskString("LyricsTrackInfoFontFamily", (string)infoFont.Items[3]);
+
+            ((CheckBox)w6.FindName("TrackInfoBoldCheck")).IsChecked = true;
+            CheckDiskBool("LyricsTrackInfoFontBold", true);
+            ((CheckBox)w6.FindName("TrackInfoItalicCheck")).IsChecked = true;
+            CheckDiskBool("LyricsTrackInfoFontItalic", true);
+
+            var infoScale = (Slider)w6.FindName("TrackInfoFontScaleSlider");
+            infoScale.Value = 120;
+            CheckDiskNumber("LyricsTrackInfoFontScalePercent", 120);
+            Check("scale label reads 120%", ((TextBlock)w6.FindName("TrackInfoFontScaleText")).Text, "120%");
+
+            ((TextBox)w6.FindName("TrackInfoColorBox")).Text = "#FFE082";
+            CheckDiskString("LyricsTrackInfoTextColor", "#FFE082");
+
+            // 歌词那一侧的两项必须原地不动：曲目信息的颜色/字号写盘时不能顺手把歌词的也写一遍。
+            Check("lyric colour untouched", ((TextBox)w6.FindName("ColorBox")).Text, lyricColorBefore);
+            Check("lyric size untouched", (int)Math.Round(((Slider)w6.FindName("FontSizeSlider")).Value), lyricScaleBefore);
+            CheckDiskString("LyricsTextColor", lyricColorBefore);
+
+            w6.Close();
+            var w7 = new SettingsWindow(() => { });
+            Check("reload TrackInfoFontCombo", ((ComboBox)w7.FindName("TrackInfoFontCombo")).SelectedIndex, 3);
+            Check("reload TrackInfoBoldCheck", ((CheckBox)w7.FindName("TrackInfoBoldCheck")).IsChecked == true ? 1 : 0, 1);
+            Check("reload TrackInfoItalicCheck", ((CheckBox)w7.FindName("TrackInfoItalicCheck")).IsChecked == true ? 1 : 0, 1);
+            Check("reload TrackInfoFontScaleSlider", (int)Math.Round(((Slider)w7.FindName("TrackInfoFontScaleSlider")).Value), 120);
+            Check("reload TrackInfoColorBox", ((TextBox)w7.FindName("TrackInfoColorBox")).Text, "#FFE082");
+            w7.Close();
+
+            // ---- v1.6.0: 回到"跟随歌词"必须真的清掉独立字体，而不是留着一个值 ----
+            var w8 = new SettingsWindow(() => { });
+            ((ComboBox)w8.FindName("TrackInfoFontCombo")).SelectedIndex = 0;
+            // null 会被 JSON 序列化整个省掉，所以"清掉了"的判据是"这个键不存在或为 null"，而不是空字符串。
+            // A null is dropped from the JSON entirely, so "cleared" means "the key is absent or null", not an empty string.
+            var cleared = ReadDiskNode("LyricsTrackInfoFontFamily")?.ToJsonString();
+            Check("follow-lyrics clears the family", cleared is null || cleared == "null" ? 1 : 0, 1);
+            w8.Close();
         }
         catch (Exception ex)
         {

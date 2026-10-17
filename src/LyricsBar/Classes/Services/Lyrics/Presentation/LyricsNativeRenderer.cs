@@ -221,6 +221,16 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
     private string _trackInfoArtistText = string.Empty;
     private double _trackInfoWidthDip;
 
+    // 曲目信息块自己的字体与颜色（与歌词分开）。空族名/空颜色表示跟随歌词，字重 0 表示跟随歌词的字重，
+    // 因此未配置时这三个字段不改变任何画面。
+    // The track-info block's own font and colour, separate from the lyrics. An empty family or colour means "follow the
+    // lyrics", and a zero weight means "follow the lyric weight", so an unconfigured block renders exactly as before.
+    private string _trackInfoFontFamily = string.Empty;
+    private FontWeight _trackInfoWeight = FontWeights.Normal;
+    private FontStyle _trackInfoStyle = FontStyles.Normal;
+    private double _trackInfoFontScale = 1;
+    private Brush? _trackInfoBrush;
+
     private string _coverDataUri = string.Empty;
     private bool _coverImageOnA = true;
     private double _coverOpacityA;
@@ -348,6 +358,17 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
         _translationBrush = CreateBrush(style.TranslationColor, Colors.White);
         _wordScanBaseBrush = CreateBrush(style.WordScanBaseColor, Colors.White);
         _wordScanOverlayBrush = CreateBrush(style.WordScanOverlayColor, Colors.White);
+
+        // 曲目信息块自己的字体与颜色：空串/0 一律表示"跟随歌词"，于是没配过这项时画面与从前完全一致。
+        // The track-info block's own font and colour: an empty string or a zero means "follow the lyrics", so a block that was
+        // never configured looks exactly as it did before.
+        _trackInfoFontFamily = string.IsNullOrWhiteSpace(style.TrackInfoFontFamily) ? string.Empty : style.TrackInfoFontFamily!.Trim();
+        _trackInfoWeight = style.TrackInfoFontWeight >= 600 ? FontWeights.Bold : FontWeights.Normal;
+        _trackInfoStyle = style.TrackInfoFontItalic ? FontStyles.Italic : FontStyles.Normal;
+        _trackInfoFontScale = double.IsFinite(style.TrackInfoFontScalePercent) && style.TrackInfoFontScalePercent > 0
+            ? Math.Clamp(style.TrackInfoFontScalePercent, 50, 200) / 100d
+            : 1;
+        _trackInfoBrush = TryCreateBrush(style.TrackInfoColor);
 
         ApplyTextShadow(style.TextShadow);
 
@@ -922,23 +943,36 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
 
     private void ApplyTrackInfoFonts()
     {
-        _trackInfoTitle.FontFamily = _typeface.FontFamily;
-        _trackInfoArtist.FontFamily = _typeface.FontFamily;
+        // 字体族、字重、斜体各有两条路：块自己配的，或跟随歌词的那一套。
+        // Family, weight and slant each come from either the block's own configuration or the lyrics' set.
+        var family = _trackInfoFontFamily.Length > 0
+            ? new FontFamily(_trackInfoFontFamily)
+            : _typeface.FontFamily;
 
-        // 字重与斜体跟着歌词走：曲目信息块与歌词并排，一边粗一边不粗会显得像两套排版。
-        // Weight and slant follow the lyrics: the track-info block sits right beside them, and one bold next to one regular
-        // reads like two different typographic systems.
-        _trackInfoTitle.FontWeight = _typeface.Weight;
-        _trackInfoArtist.FontWeight = _typeface.Weight;
-        _trackInfoTitle.FontStyle = _typeface.Style;
-        _trackInfoArtist.FontStyle = _typeface.Style;
+        _trackInfoTitle.FontFamily = family;
+        _trackInfoArtist.FontFamily = family;
 
-        _trackInfoTitle.FontSize = _currentFontSize;
-        _trackInfoArtist.FontSize = _nextFontSize;
-        _trackInfoTitle.Foreground = _primaryBrush;
-        _trackInfoArtist.Foreground = _secondaryBrush;
+        _trackInfoTitle.FontWeight = _trackInfoWeight;
+        _trackInfoArtist.FontWeight = _trackInfoWeight;
+        _trackInfoTitle.FontStyle = _trackInfoStyle;
+        _trackInfoArtist.FontStyle = _trackInfoStyle;
+
+        // 字号按比例缩放而不是另给绝对值：调歌词字号时，曲目信息与歌词的相对大小保持不变。
+        // 曲名用当前行字号、歌手用下一行字号，与网页端的 --current-size / --next-size 一致。
+        // The sizes scale by a ratio rather than taking absolute values, so changing the lyric size keeps the track info in the
+        // same relative proportion. The title rides the current-row size and the artist the next-row size, matching the web
+        // side's --current-size / --next-size.
+        _trackInfoTitle.FontSize = _currentFontSize * _trackInfoFontScale;
+        _trackInfoArtist.FontSize = _nextFontSize * _trackInfoFontScale;
+
+        // 配了颜色就用它，两行的深浅仍由下面两个 Opacity 分层；没配则各用歌词的主/次色。
+        // A configured colour drives both rows, with the two Opacity values below still layering them; unconfigured, each row
+        // keeps the lyric primary/secondary brush.
+        _trackInfoTitle.Foreground = _trackInfoBrush ?? _primaryBrush;
+        _trackInfoArtist.Foreground = _trackInfoBrush ?? _secondaryBrush;
         _trackInfoTitle.Opacity = 0.98;
         _trackInfoArtist.Opacity = 0.72;
+
 
         // 曲目信息的对齐跟随歌词排版设置（`.layout[data-text-alignment] .track-info`）。
         // Track-info alignment follows the lyric alignment setting.
@@ -1780,6 +1814,22 @@ public sealed class LyricsNativeRenderer : Canvas, ILyricsRenderer
 
     private static Brush CreateBrush(string? cssColor, Color fallback)
         => new SolidColorBrush(ParseCssColor(cssColor, fallback));
+
+    /// <summary>
+    /// 解析一个可选的颜色：空串返回 null（表示"没指定"），解析不了也返回 null。
+    /// 用透明色当哨兵来判断是否解析成功——解析失败时 <see cref="ParseCssColor"/> 返回的正是哨兵本身。
+    /// Parses an optional colour: an empty string returns null ("not specified"), and so does an unparsable one. A transparent
+    /// colour serves as the sentinel for "parsing failed", because that is exactly what <see cref="ParseCssColor"/> returns then.
+    /// </summary>
+    private static Brush? TryCreateBrush(string? cssColor)
+    {
+        if (string.IsNullOrWhiteSpace(cssColor))
+            return null;
+
+        var sentinel = Color.FromArgb(1, 2, 3, 4);
+        var parsed = ParseCssColor(cssColor, sentinel);
+        return parsed == sentinel ? null : new SolidColorBrush(parsed);
+    }
 
     /// <summary>
     /// 解析宿主下发的 CSS 颜色。宿主实际只会给 <c>#AARRGGBB</c> 与 <c>rgba(r, g, b, a)</c> 两种，

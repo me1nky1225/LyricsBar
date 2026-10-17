@@ -2364,6 +2364,43 @@ const lyricsApi = {
     // Font style rides the same CSS-variable path as weight: bold and italic arrive in one style push, and swapping the
     // variable restyles the lyrics and the track info together instead of touching each element.
     root.style.setProperty("--font-style", payload.fontItalic === true ? "italic" : "normal");
+    // 曲目信息（封面右侧的曲名 / 歌手）可以自带一套字体与颜色，五个字段都是新增且可选的。空值或缺席时不是"设成空"，
+    // 而是把变量整个删掉——CSS 那边的 var() 回退才会生效，于是老宿主不下发这些字段时曲目信息仍按歌词那一档渲染。
+    // The track info (title / artist, right of the cover) may carry its own typography and colour; all five fields are new
+    // and optional. An empty or missing value is not "set to empty" but a removal of the variable, so the var() fallbacks in
+    // CSS take over and a host that never sends these fields still renders the track info exactly as before.
+    const trackInfoFontFamily = payload.trackInfoFontFamily;
+    if (typeof trackInfoFontFamily === "string" && trackInfoFontFamily.trim()) {
+      root.style.setProperty("--track-info-font-family", trackInfoFontFamily);
+    } else {
+      root.style.removeProperty("--track-info-font-family");
+    }
+    const trackInfoFontWeight = Number(payload.trackInfoFontWeight);
+    if (Number.isFinite(trackInfoFontWeight) && trackInfoFontWeight > 0) {
+      root.style.setProperty("--track-info-font-weight", String(trackInfoFontWeight));
+    } else {
+      root.style.removeProperty("--track-info-font-weight");
+    }
+    // 与上面的 --font-style 同一个约定：只有严格的 true 才算斜体，缺省即回退歌词。
+    // Same convention as --font-style above: only a strict true means italic, anything else falls back to the lyrics.
+    if (payload.trackInfoFontItalic === true) {
+      root.style.setProperty("--track-info-font-style", "italic");
+    } else {
+      root.style.removeProperty("--track-info-font-style");
+    }
+    // 缩放是纯数字（100 = 原样），并且始终下发、永不为 0：字号乘 0 会让曲目信息消失，所以用 || 100 兜住 0 与 NaN。
+    // The scale is a bare number (100 = unchanged) and is always sent, never 0: multiplying a font size by 0 would make the
+    // track info vanish, so || 100 covers both 0 and NaN.
+    root.style.setProperty("--track-info-font-scale", String((Number(payload.trackInfoFontScalePercent) || 100) / 100));
+    // 颜色和下面那几个颜色变量一样先过 CSS.supports：宿主发来解析不了的值时，回退到歌词色总比让 color 在计算值阶段失效好。
+    // Colour goes through CSS.supports like the colour variables below: when the host sends something unparsable, falling
+    // back to the lyric colour beats leaving `color` invalid at computed-value time.
+    const trackInfoColor = payload.trackInfoColor;
+    if (typeof trackInfoColor === "string" && trackInfoColor.trim() && CSS.supports("color", trackInfoColor)) {
+      root.style.setProperty("--track-info-color", trackInfoColor);
+    } else {
+      root.style.removeProperty("--track-info-color");
+    }
     // 字距用 em 下发：每一行按自己的字号解析，因此当前行、第二行与翻译行会等比缩放。
     // Character spacing is sent in em: every line resolves it against its own font size, so the current line, the second line,
     // and the translation row all scale proportionally.

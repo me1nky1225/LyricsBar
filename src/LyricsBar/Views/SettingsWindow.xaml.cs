@@ -20,6 +20,9 @@ namespace LyricsBar.Views;
 /// </summary>
 public partial class SettingsWindow : Window
 {
+    /// <summary>曲目信息字体下拉里"跟随歌词字体"那一项的显示名（保存时仍然写回 null）。/ Label of the "follow the lyric font" entry in the track-info font drop-down; it still saves back as null.</summary>
+    private const string FollowLyricFontLabel = "跟随歌词字体";
+
     private readonly Action _redockRequested;
     private readonly Dictionary<string, System.Windows.Controls.CheckBox> _sourceChecks = new(StringComparer.Ordinal);
     private bool _loading;
@@ -47,6 +50,7 @@ public partial class SettingsWindow : Window
         BuildSourceList();
         BuildColorPresetList();
         BuildFontFamilyList();
+        BuildTrackInfoFontList();
         WireEvents();
         LoadFromSettings();
     }
@@ -92,6 +96,25 @@ public partial class SettingsWindow : Window
         names.AddRange(LyricsFontCatalog.Candidates);
 
         FontFamilyCombo.ItemsSource = names;
+    }
+
+    /// <summary>
+    /// 曲目信息块的字体下拉：第一项是"跟随歌词字体"，之后才是同一份 <see cref="LyricsFontCatalog.Candidates"/>。
+    /// 与歌词字体下拉不同，这个下拉不可编辑：它的第一项本身就是"不单独指定"，没有"输入清单外的字体"这个需求，
+    /// 而可编辑下拉要额外处理模板里的 ContentSite / PART_EditableTextBox 切换（见 <see cref="SyncFontComboEditState"/>）。
+    /// 两项清单共用同一份候选，用户在两处看到的是同样的字体名。
+    /// The track-info font drop-down: "follow the lyric font" first, then the same <see cref="LyricsFontCatalog.Candidates"/>.
+    /// Unlike the lyric font drop-down this one is not editable: its first entry already means "do not specify a separate face",
+    /// so typing a family outside the list is not a need, and an editable drop-down would additionally have to switch the
+    /// template's ContentSite / PART_EditableTextBox pair (see <see cref="SyncFontComboEditState"/>). Both lists share one set of
+    /// candidates, so the same family names appear in both places.
+    /// </summary>
+    private void BuildTrackInfoFontList()
+    {
+        var names = new List<string> { FollowLyricFontLabel };
+        names.AddRange(LyricsFontCatalog.Candidates);
+
+        TrackInfoFontCombo.ItemsSource = names;
     }
 
     private void BuildSourceList()
@@ -176,6 +199,10 @@ public partial class SettingsWindow : Window
         FontBoldCheck.Unchecked += (_, _) => ApplyFromUi();
         FontItalicCheck.Checked += (_, _) => ApplyFromUi();
         FontItalicCheck.Unchecked += (_, _) => ApplyFromUi();
+        TrackInfoBoldCheck.Checked += (_, _) => ApplyFromUi();
+        TrackInfoBoldCheck.Unchecked += (_, _) => ApplyFromUi();
+        TrackInfoItalicCheck.Checked += (_, _) => ApplyFromUi();
+        TrackInfoItalicCheck.Unchecked += (_, _) => ApplyFromUi();
         SoftwareRenderCheck.Checked += (_, _) => ApplyFromUi();
         SoftwareRenderCheck.Unchecked += (_, _) => ApplyFromUi();
         CompatibilityModeCheck.Checked += (_, _) => ApplyFromUi();
@@ -185,6 +212,7 @@ public partial class SettingsWindow : Window
         CharSpacingSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
         LineGapSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
         TrackInfoWidthSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
+        TrackInfoFontScaleSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
         UnsungSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
         FixedWidthSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
         MaxWidthSlider.ValueChanged += (_, _) => { UpdateValueLabels(); ApplyFromUi(); };
@@ -212,7 +240,21 @@ public partial class SettingsWindow : Window
         FontFamilyCombo.SelectionChanged += (_, _) => ApplyFromUi();
         FontFamilyCombo.LostFocus += (_, _) => ApplyFromUi();
 
+        // 曲目信息字体下拉不可编辑，选中即生效，所以没有 FontFamilyCombo 那条"等焦点离开"的路径。
+        // The track-info font drop-down is not editable, so picking an entry applies at once and there is no
+        // FontFamilyCombo-style wait-for-focus path here.
+        TrackInfoFontCombo.SelectionChanged += (_, _) => ApplyFromUi();
+
         ColorBox.TextChanged += (_, _) =>
+        {
+            UpdateColorPreview();
+            ApplyFromUi();
+        };
+
+        // 曲目信息颜色框和歌词颜色框走同一条路：先刷预览再落盘，两个预览框由同一次调用一起更新。
+        // The track-info colour box takes the same path as the lyric colour box: refresh the preview, then persist; one call
+        // updates both previews.
+        TrackInfoColorBox.TextChanged += (_, _) =>
         {
             UpdateColorPreview();
             ApplyFromUi();
@@ -311,6 +353,25 @@ public partial class SettingsWindow : Window
 
             FontFamilyCombo.Text = string.IsNullOrWhiteSpace(s.FontFamily) ? LyricsFontCatalog.SystemDefaultLabel : s.FontFamily;
 
+            // 曲目信息块的字体：空 = 跟随歌词字体，落在第一项。候选清单里找不到保存的那款字体时也回退到第一项，
+            // 不提示也不清空设置——这就是"这一版清单里没有当年选的那款字体"的正常退路。
+            // Track-info font: blank means "follow the lyric font", which is entry 0. A saved family that is absent from the
+            // candidate list also falls back to entry 0 without a notice or clearing the setting — that is the ordinary
+            // fallback for "this build's list no longer carries the family that was picked".
+            TrackInfoFontCombo.SelectedIndex = ResolveTrackInfoFontIndex(s.LyricsTrackInfoFontFamily);
+
+            TrackInfoBoldCheck.IsChecked = s.LyricsTrackInfoFontBold;
+            TrackInfoItalicCheck.IsChecked = s.LyricsTrackInfoFontItalic;
+
+            // 没保存过时属性是 0，而 0% 不是一档合法字号：按"没设过"处理成默认的 100%，再夹进滑块范围。
+            // A never-saved property reads 0, and 0% is not a legal size, so it is treated as "unset" (the default 100%) and
+            // the result is clamped into the slider's range.
+            TrackInfoFontScaleSlider.Value = s.LyricsTrackInfoFontScalePercent > 0
+                ? Math.Clamp(s.LyricsTrackInfoFontScalePercent, 50, 200)
+                : 100;
+
+            TrackInfoColorBox.Text = s.LyricsTrackInfoTextColor;
+
             ColorBox.Text = s.LyricsTextColor;
 
             // EnabledSourceIds 为 null 表示"从未配置"，也就是全部启用。
@@ -345,18 +406,38 @@ public partial class SettingsWindow : Window
         FixedWidthText.Text = ((int)FixedWidthSlider.Value).ToString(CultureInfo.InvariantCulture);
         MaxWidthText.Text = ((int)MaxWidthSlider.Value).ToString(CultureInfo.InvariantCulture);
         OffsetText.Text = ((int)OffsetSlider.Value).ToString(CultureInfo.InvariantCulture);
+        // 曲目信息字号是相对歌词字号的百分比，标签直接带 % 才不会让人以为是绝对磅值。
+        // The track-info size is a percentage of the lyric size, so the label carries a % sign to stop it reading as an
+        // absolute point size.
+        TrackInfoFontScaleText.Text = $"{TrackInfoFontScaleSlider.Value:0}%";
     }
 
     private void UpdateColorPreview()
     {
+        ColorPreview.Background = ResolveColorBrush(ColorBox.Text);
+        TrackInfoColorPreview.Background = ResolveColorBrush(TrackInfoColorBox.Text);
+    }
+
+    /// <summary>
+    /// 把颜色框里的文字解成一个预览画刷：空白或解析失败都给透明，也就是"这一项没设颜色"的空框样子。
+    /// 曲目信息颜色留空本来就有含义（跟随歌词颜色），空白必须表现为空框而不是报错或涂成黑色。
+    /// Parses the text of a colour box into a preview brush: blank or unparseable both give transparent, i.e. the empty-box
+    /// look of "no colour set here". A blank track-info colour genuinely means "follow the lyric colour", so blank must read
+    /// as an empty box rather than throw or be painted black.
+    /// </summary>
+    private static Brush ResolveColorBrush(string text)
+    {
         try
         {
-            var color = (Color)ColorConverter.ConvertFromString(ColorBox.Text.Trim());
-            ColorPreview.Background = new SolidColorBrush(color);
+            var trimmed = text?.Trim();
+            if (string.IsNullOrEmpty(trimmed))
+                return Brushes.Transparent;
+
+            return new SolidColorBrush((Color)ColorConverter.ConvertFromString(trimmed));
         }
         catch (Exception)
         {
-            ColorPreview.Background = Brushes.Transparent;
+            return Brushes.Transparent;
         }
     }
 
@@ -465,6 +546,27 @@ public partial class SettingsWindow : Window
         if (IsValidColor(color))
             s.LyricsTextColor = color;
 
+        // 曲目信息块独立的那一套排版：字体下拉的第 0 项是"跟随歌词字体"这个界面占位标签，落盘必须写回 null；
+        // 其余项本身就是字体族名，直接写回。字形与字号各一项，字号按规则夹到 50..200。
+        // The track-info block's independent typography: entry 0 of the font drop-down is the "follow the lyric font" UI label
+        // and must be written back as null, while every other entry already is a family name. Bold and italic map straight
+        // through, and the scale is clamped to the 50..200 range the renderers accept.
+        s.LyricsTrackInfoFontFamily = TrackInfoFontCombo.SelectedIndex > 0
+            ? TrackInfoFontCombo.SelectedItem as string
+            : null;
+        s.LyricsTrackInfoFontBold = TrackInfoBoldCheck.IsChecked == true;
+        s.LyricsTrackInfoFontItalic = TrackInfoItalicCheck.IsChecked == true;
+        s.LyricsTrackInfoFontScalePercent = Math.Clamp(TrackInfoFontScaleSlider.Value, 50, 200);
+
+        // 曲目信息颜色沿用上面歌词颜色的同一套校验（IsValidColor / ColorConverter）：区别只在于空白是合法值，
+        // 表示"跟随歌词颜色"，所以空白直接写回，非法输入则和歌词颜色一样不写回、保留上一次的有效值。
+        // The track-info colour reuses the exact validation the lyric colour above uses (IsValidColor / ColorConverter). The one
+        // difference is that blank is a legal value here and means "follow the lyric colour", so it is written back as-is,
+        // while unparseable input is dropped just as the lyric colour drops it, keeping the last valid value.
+        var trackInfoColor = TrackInfoColorBox.Text.Trim();
+        if (string.IsNullOrEmpty(trackInfoColor) || IsValidColor(trackInfoColor))
+            s.LyricsTrackInfoTextColor = trackInfoColor;
+
         var checkedIds = _sourceChecks
             .Where(pair => pair.Value.IsChecked == true)
             .Select(pair => pair.Key)
@@ -488,6 +590,28 @@ public partial class SettingsWindow : Window
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// 把保存的曲目信息字体族名映射回下拉索引：空白 = 跟随歌词字体（第 0 项），候选里找不到也回 0。
+    /// 与 <see cref="BuildTrackInfoFontList"/> 填进去的清单一一对应（第 0 项是占位标签，候选从第 1 项开始）。
+    /// Maps a saved track-info family name back to a drop-down index: blank means "follow the lyric font" (entry 0), and a
+    /// family missing from the candidates also lands on 0. The index layout mirrors what <see cref="BuildTrackInfoFontList"/>
+    /// fills in (entry 0 is the label, the candidates start at entry 1).
+    /// </summary>
+    private static int ResolveTrackInfoFontIndex(string? family)
+    {
+        if (string.IsNullOrWhiteSpace(family))
+            return 0;
+
+        var candidates = LyricsFontCatalog.Candidates;
+        for (var i = 0; i < candidates.Count; i++)
+        {
+            if (string.Equals(candidates[i], family.Trim(), StringComparison.OrdinalIgnoreCase))
+                return i + 1;
+        }
+
+        return 0;
     }
 
     /// <summary>

@@ -680,6 +680,74 @@
                     </StackPanel>
                 </Border>
 
+                <!--
+                  曲目信息：封面右侧那块「曲名 / 歌手」自己的字体与颜色。它和歌词是两块彼此独立的字，共用一套排版会让
+                  "曲名想小一点、换个颜色"这种最常见的要求无处可去，所以这里给出一份独立的、默认跟随歌词的覆盖值。
+                  取值留空 / 选「跟随歌词字体」时回落到歌词的设置，也就是说这张卡片不改任何东西时，画面与之前完全一致。
+                  行结构沿用「外观」与「排版」两张卡片（120 标签列 + 右对齐数值），卡片叠在一起时纵向仍然对得齐。
+                  Track info: the "title / artist" block to the right of the cover gets its own font and colour. It and the
+                  lyrics are two independent pieces of type, and sharing one set of typography leaves the most common request —
+                  "make the title a bit smaller, or give it another colour" — nowhere to go, so this card offers a separate
+                  override that follows the lyrics until it is actually changed. Row structure follows the "appearance" and
+                  "layout" cards (120-wide label column with a right-aligned value) so the stacked cards stay aligned.
+                -->
+                <Border Style="{StaticResource SectionCard}">
+                    <StackPanel>
+                        <TextBlock Text="曲目信息" Style="{StaticResource CardTitle}" />
+                        <TextBlock Style="{StaticResource CardHint}"
+                                   Text="只影响封面右侧的曲名 / 歌手那一块，歌词的字体与颜色仍由上面的「外观」决定。" />
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="字体" Style="{StaticResource RowLabel}" />
+                            <ComboBox x:Name="TrackInfoFontCombo"
+                                      Grid.Column="1"
+                                      ToolTip="曲目信息块使用的字体；选「跟随歌词字体」则与「排版」里选的歌词字体一致" />
+                        </Grid>
+
+                        <Grid Margin="0,2,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="字形" Style="{StaticResource RowLabel}" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <CheckBox x:Name="TrackInfoBoldCheck" Content="加粗" Margin="0,4,14,4" />
+                                <CheckBox x:Name="TrackInfoItalicCheck" Content="斜体" Margin="0,4,0,4" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="44" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="字号 (%)" Style="{StaticResource RowLabel}" />
+                            <Slider x:Name="TrackInfoFontScaleSlider" Grid.Column="1" Minimum="50" Maximum="200" TickFrequency="10" IsSnapToTickEnabled="True" />
+                            <TextBlock x:Name="TrackInfoFontScaleText" Grid.Column="2" HorizontalAlignment="Right" Foreground="#6B6B6B" />
+                        </Grid>
+
+                        <Grid Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="120" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="文字颜色" Style="{StaticResource RowLabel}" />
+                            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                                <TextBox x:Name="TrackInfoColorBox" Width="150" VerticalContentAlignment="Center" ToolTip="#RRGGBB 或颜色名，如 White、#FFE082；留空 = 跟随歌词颜色" />
+                                <Border x:Name="TrackInfoColorPreview" Width="30" Height="22" Margin="10,0,0,0" BorderBrush="#8C8C8C" BorderThickness="1" CornerRadius="3" />
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Style="{StaticResource CardHint}"
+                                   Text="文字颜色留空 = 跟随歌词颜色；支持 #RRGGBB 或颜色名（如 White、#FFE082）。" />
+                    </StackPanel>
+                </Border>
+
                 <!-- 歌词来源 -->
                 <Border Style="{StaticResource SectionCard}">
                     <StackPanel>

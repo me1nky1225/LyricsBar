@@ -2,6 +2,30 @@
 
 本项目从 AF Media Bar 抽离后自行编号。日期为本地构建日期。
 
+## 1.6.0 — 2026-10-17
+
+**新增：单击歌词栏打开正在放歌的播放器；曲目信息有了自己的一套字体 / 字形 / 字号 / 颜色（不再跟歌词捆在一起）；
+修复指针停在曲目信息上时歌词区仍然浮出切歌按钮的问题**
+
+- **切歌按钮只在歌词区悬停时出现**（修复）：v1.5.0 起的悬停显隐是"指针在窗口内就展开"，于是指针停在封面 / 曲目信息
+  上时，歌词区右上方照样浮出三枚按钮——那一块本该只出「鼠标滚轮上下曲」的提示。现在 `UpdateTransportTag` 按
+  `LyricsOverlayRegion.Lyrics` 判：按钮只属于歌词这一块，信息块的悬停只给提示。按钮收起时也不收点击，
+  `IsPointerOverTransportCluster` 用 `TransportPanel.Tag == "Shown"` 加按钮簇的横向区间一起判，点空白处不会被当成点按钮。
+- **单击歌词栏 = 打开播放器**（新增，`Classes\Services\PlayerActivationService.cs`）：系统媒体会话（SMTC）只有控制能力、
+  没有"激活这个播放器"，所以拿会话的 `SourceAppUserModelId` 自己认进程——先按标识里的可执行文件名 / 产品名找进程并把它
+  的主窗口拉到前台（`ShowWindowAsync(SW_RESTORE)` + `SetForegroundWindow`，被前台锁挡住时退 `SwitchToThisWindow`），
+  标识是打包应用（`...!App`）且找不到进程时再按 AUMID 走 `IApplicationActivationManager`。
+  窗口消息钩子新增 `WM_LBUTTONDOWN` / `WM_LBUTTONUP` 配对：按下在按钮簇之外、抬起也在按钮簇之外才算一次单击，
+  在按钮上按下的那一下仍归 WPF 的 `Click`，按下后拖走再松手也不算。与切歌按钮共用「歌词栏响应鼠标」这个开关。
+- **曲目信息的字体 / 字形 / 字号 / 颜色独立**（新增）：设置里新增「曲目信息」卡片——字体（默认「跟随歌词字体」，
+  也可单独选 15 款之一）、加粗、斜体、字号 %（50–200）、文字颜色（留空 = 跟随歌词颜色）。
+  设置键 `LyricsTrackInfoFontFamily` / `LyricsTrackInfoFontBold` / `LyricsTrackInfoFontItalic` /
+  `LyricsTrackInfoFontScalePercent` / `LyricsTrackInfoTextColor`；原生渲染器为曲目信息单独持有 typeface 与画笔，
+  网页渲染器把这些值下发成 CSS 变量（`.track-info-title` / `.track-info-artist`）。曲名与歌手的相对大小仍按
+  0.92 的比例走，改字号只缩放这一块，不影响歌词。
+- **探针**：新增 `tools/PlayerActivationProbe`（18 项：各种来源标识形状 → 进程名候选，含"打包标识里的 `App`
+  不能当进程名"这条），`tools/SettingsRoundTrip` 增加 12 项（五项新设置写盘 / 读回 / 清空，且不顺手改到歌词那一套）。
+
 ## 1.5.1 — 2026-10-16
 
 **修复：附加网易云特征码通道时不再把 `cloudmusic.dll` 的 `.text` 整段读进内存（本机 25.9 MB），改成一个 4 MB 缓冲流式扫描，附加那一刻的私有提交台阶从约 55 MB 降到约 8 MB**

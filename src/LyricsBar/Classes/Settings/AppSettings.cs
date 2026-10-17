@@ -352,6 +352,40 @@ public sealed class AppSettings
     public double LyricsTrackInfoWidthDip { get; set; }
 
     /// <summary>
+    /// 曲目信息块自己的字体族；null 或空串表示跟随歌词的 <see cref="FontFamily"/>。
+    /// 与歌词分开是为了排版自由：曲名往往想用更"标题化"的字体，而歌词要保持易读的正文字体。
+    /// The track-info block's own font family; null or empty follows the lyrics' <see cref="FontFamily"/>. Keeping it separate is
+    /// about typography: a title often wants a more display-like face while the lyrics stay in an easy-to-read body face.
+    /// </summary>
+    public string? LyricsTrackInfoFontFamily { get; set; }
+
+    /// <summary>
+    /// 曲目信息块是否加粗。独立于 <see cref="LyricsFontBold"/>：曲名加粗、歌词不加粗是常见的一对。
+    /// Whether the track-info block is bold. Independent of <see cref="LyricsFontBold"/>: a bold title over regular lyrics is a
+    /// common pairing.
+    /// </summary>
+    public bool LyricsTrackInfoFontBold { get; set; }
+
+    /// <summary>曲目信息块是否使用斜体。独立于 <see cref="LyricsFontItalic"/>。/ Whether the track-info block is italic.</summary>
+    public bool LyricsTrackInfoFontItalic { get; set; }
+
+    /// <summary>
+    /// 曲目信息块的字号缩放百分比（100 = 与歌词同级）。渲染器把它乘在曲名/歌手的字号上，
+    /// 因此调歌词字号时两者的相对比例保持不变。
+    /// The track-info block's font-size scale in percent (100 = same size as the lyrics). The renderer multiplies it onto the
+    /// title/artist sizes, so changing the lyric size keeps the two in the same relative proportion.
+    /// </summary>
+    public double LyricsTrackInfoFontScalePercent { get; set; } = 100;
+
+    /// <summary>
+    /// 曲目信息块的文字颜色（#RRGGBB 或 #AARRGGBB）；空串表示跟随歌词的 <see cref="LyricsTextColor"/>。
+    /// 歌手的字默认比曲名淡（见渲染器），所以这一个颜色同时决定那一块的深浅层次。
+    /// The track-info block's text colour (#RRGGBB or #AARRGGBB); empty follows the lyrics' <see cref="LyricsTextColor"/>. The
+    /// artist stays dimmer than the title (see the renderer), so this one colour drives both levels of emphasis there.
+    /// </summary>
+    public string LyricsTrackInfoTextColor { get; set; } = string.Empty;
+
+    /// <summary>
     /// 归一化：把越界或不合理的取值收敛回合法区间，保证渲染层拿到的一定是可用值。
     /// Normalizes out-of-range or nonsensical values so the rendering layer always receives usable ones.
     /// </summary>
@@ -370,6 +404,11 @@ public sealed class AppSettings
         if (!Enum.IsDefined(LyricsRendererEngine)) LyricsRendererEngine = LyricsRendererEngine.Native;
         LyricsFontSize = double.IsFinite(LyricsFontSize) ? Math.Clamp(LyricsFontSize, 8, 48) : 14;
         LyricsTrackInfoWidthDip = LyricsTrackInfoWidthPolicy.NormalizeManual(LyricsTrackInfoWidthDip);
+        LyricsTrackInfoFontFamily = string.IsNullOrWhiteSpace(LyricsTrackInfoFontFamily) ? null : LyricsTrackInfoFontFamily!.Trim();
+        LyricsTrackInfoFontScalePercent = double.IsFinite(LyricsTrackInfoFontScalePercent)
+            ? Math.Clamp(LyricsTrackInfoFontScalePercent, 50, 200)
+            : 100;
+        LyricsTrackInfoTextColor ??= string.Empty;
         LyricsBarHeight = double.IsFinite(LyricsBarHeight) ? Math.Clamp(LyricsBarHeight, 24, 96) : 40;
         LyricsMaxWidthDip = double.IsFinite(LyricsMaxWidthDip) ? Math.Clamp(LyricsMaxWidthDip, 120, 2000) : 640;
         TaskbarOffsetDip = double.IsFinite(TaskbarOffsetDip) ? Math.Clamp(TaskbarOffsetDip, 0, 2000) : 0;
@@ -413,6 +452,11 @@ public sealed class AppSettings
         LyricsMouseControlEnabled = LyricsMouseControlEnabled,
         LyricsTrackInfoBlockEnabled = LyricsTrackInfoBlockEnabled,
         LyricsTrackInfoWidthDip = LyricsTrackInfoWidthDip,
+        LyricsTrackInfoFontFamily = LyricsTrackInfoFontFamily,
+        LyricsTrackInfoFontBold = LyricsTrackInfoFontBold,
+        LyricsTrackInfoFontItalic = LyricsTrackInfoFontItalic,
+        LyricsTrackInfoFontScalePercent = LyricsTrackInfoFontScalePercent,
+        LyricsTrackInfoTextColor = LyricsTrackInfoTextColor,
         LyricsCoverArtEnabled = LyricsCoverArtEnabled,
         LyricsBarAlignment = LyricsBarAlignment,
         TaskbarOffsetDip = TaskbarOffsetDip

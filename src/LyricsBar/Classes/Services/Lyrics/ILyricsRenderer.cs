@@ -36,7 +36,12 @@ public sealed record LyricsWebStyle(
     string TextShadow,
     bool ShowCover = false,
     double CoverSizeDip = 34,
-    bool FontItalic = false);
+    bool FontItalic = false,
+    string TrackInfoFontFamily = "",
+    int TrackInfoFontWeight = 0,
+    bool TrackInfoFontItalic = false,
+    double TrackInfoFontScalePercent = 100,
+    string TrackInfoColor = "");
 
 /// <summary>
 /// 歌词渲染器的公共面。宿主（<c>TaskbarLyricsWindow</c>）只认这一层，
@@ -45,9 +50,9 @@ public sealed record LyricsWebStyle(
 /// self-drawn implementation and the WebView2-hosted page can coexist and be swapped, which also makes it practical to
 /// compare them item by item.
 ///
-/// 协议与原来的 WebView2 适配器完全一致：
+/// 协议与原来的 WebView2 适配器完全一致（见 <c>RENDERER-REWRITE.md</c> §3.2）：
 /// 宿主只喂三样东西——一帧歌词、一份外观，外加封面与曲目信息两条独立消息；渲染器不回传任何东西。
-/// The contract is exactly the one the WebView2 adapter had: the host feeds a lyric frame, an
+/// The contract is exactly the one the WebView2 adapter had (see RENDERER-REWRITE.md §3.2): the host feeds a lyric frame, an
 /// appearance, and two standalone messages for artwork and track info; nothing travels back.
 /// </summary>
 public interface ILyricsRenderer : IDisposable

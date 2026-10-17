@@ -225,19 +225,30 @@ html, body {
 /* The title uses the main row's size and colour, the artist the second row's, matching the lyric rows' visual hierarchy. Weight
    and style are declared here too so the track info follows exactly the same font settings as the lyrics rather than just
    inheriting the container's defaults. */
+/* 曲目信息另有一套可选的字体变量，由宿主单独下发；每个变量都缺省回退到歌词那一档（--font-family / --font-weight /
+   --font-style / --primary / --secondary），所以宿主不下发这五个字段时，这里的解析结果与改动前逐项相同。
+   --track-info-font-scale 只缩放字号，默认 1 即原样；颜色、字重、字形、字体族各管一项，互不牵连。
+   The track info has its own optional font variables, sent separately by the host; each one falls back to the lyric value
+   (--font-family / --font-weight / --font-style / --primary / --secondary), so with none of the five sent every declaration
+   here resolves exactly as it did before. --track-info-font-scale scales font sizes only and defaults to 1 (unchanged). */
 .track-info-title {
-  font-size: var(--current-size);
-  font-weight: var(--font-weight);
-  font-style: var(--font-style);
-  color: var(--primary);
+  font-family: var(--track-info-font-family, var(--font-family));
+  font-size: calc(var(--current-size) * var(--track-info-font-scale, 1));
+  font-weight: var(--track-info-font-weight, var(--font-weight));
+  font-style: var(--track-info-font-style, var(--font-style));
+  color: var(--track-info-color, var(--primary));
   opacity: 0.98;
 }
 
+/* 歌手沿用同一套变量，只有字号档位与颜色兜底不同（第二行那一档），并保留 0.72 的不透明度让它比曲名更暗。 */
+/* The artist rides the same variables, differing only in the size tier and the colour fallback (the second row's), and keeps
+   the 0.72 opacity that makes it dimmer than the title. */
 .track-info-artist {
-  font-size: var(--next-size);
-  font-weight: var(--font-weight);
-  font-style: var(--font-style);
-  color: var(--secondary);
+  font-family: var(--track-info-font-family, var(--font-family));
+  font-size: calc(var(--next-size) * var(--track-info-font-scale, 1));
+  font-weight: var(--track-info-font-weight, var(--font-weight));
+  font-style: var(--track-info-font-style, var(--font-style));
+  color: var(--track-info-color, var(--secondary));
   opacity: 0.72;
 }
 

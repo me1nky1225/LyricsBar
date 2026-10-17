@@ -92,6 +92,13 @@ public partial class TaskbarLyricsWindow : Window
     /// <summary>指针当前所在的块，由 <see cref="ResolveOverlayRegion"/> 算出来。/ The part the pointer is over, from <see cref="ResolveOverlayRegion"/>.</summary>
     private LyricsOverlayRegion _overlayRegion = LyricsOverlayRegion.None;
 
+    /// <summary>
+    /// 上一次左键按下时指针是否落在按钮区之外。抬起时才决定要不要打开播放器，所以按下这一下要记着。
+    /// Whether the last left-button press landed outside the button cluster; the release decides, so the press has to be
+    /// remembered.
+    /// </summary>
+    private bool _pressOutsideTransport;
+
     /// <summary>渲染器降级的最高级别，见 <see cref="ResolveBrowserArguments"/>。</summary>
     private const int MaxRendererFallbackTier = 2;
 
@@ -318,7 +325,24 @@ public partial class TaskbarLyricsWindow : Window
         }
         else if (message == WM_MOUSELEAVE)
         {
+            _pressOutsideTransport = false;
             UpdatePointerInside(null);
+        }
+        else if (message == WM_LBUTTONDOWN)
+        {
+            // 只记下这一下是不是按在按钮之外：真正要不要打开播放器由抬起决定。在按钮上按下又抬起是一次按钮点击，
+            // 那条路归 WPF 的 Click；按下后拖到别处再松手也不算单击。
+            // Only the fact that this press did not start on a button is remembered; the release decides whether to open the
+            // player. A press and release both on a button is a button click that belongs to WPF's Click, and a press dragged
+            // away before release is not a click either.
+            _pressOutsideTransport = _pointerInsideWindow && !IsPointerOverTransportCluster();
+        }
+        else if (message == WM_LBUTTONUP)
+        {
+            var opensPlayer = _pressOutsideTransport && _pointerInsideWindow && !IsPointerOverTransportCluster();
+            _pressOutsideTransport = false;
+            if (opensPlayer)
+                RequestOpenPlayer();
         }
 
         return IntPtr.Zero;
@@ -408,6 +432,62 @@ public partial class TaskbarLyricsWindow : Window
             TrackInfoGapDip);
 
         return LyricsHoverRegionPolicy.Resolve(x - LayoutPaddingInlineDip, infoPartWidthDip);
+    }
+
+    /// <summary>
+    /// 指针是否正压在切歌按钮那一簇上。按钮只在歌词区悬停时才展开，收起时这一簇根本不该收点击。
+    ///
+    /// 判定只用横向区间：歌词栏高度在一行到三行之间，按钮簇始终垂直居中且只有 34 DIP 高，指针能在栏内出现的任何
+    /// 高度都落在它的纵向范围里，所以横向就够了——多算一条纵向边界只会多一个会算错的量。
+    /// Whether the pointer rests on the skip-button cluster. The cluster only unfolds while the lyrics are hovered, and while it
+    /// is folded it must not swallow clicks.
+    ///
+    /// Only the horizontal interval is compared: the bar is one to three rows tall while the cluster is always vertically centred
+    /// and only 34 DIP high, so any height the pointer can occupy inside the bar falls within its vertical range — a second
+    /// boundary would only add a quantity that can be got wrong.
+    /// </summary>
+    private bool IsPointerOverTransportCluster()
+    {
+        if (!string.Equals((string?)TransportPanel.Tag, "Shown", StringComparison.Ordinal) || _pointerInsideDipX is not { } x)
+            return false;
+
+        var cluster = TransportCluster;
+        if (cluster is null || cluster.ActualWidth <= 0)
+            return false;
+
+        var origin = cluster.TranslatePoint(new Point(0, 0), this);
+        return x >= origin.X && x <= origin.X + cluster.ActualWidth;
+    }
+
+    /// <summary>
+    /// 单击歌词栏（按钮之外）＝打开正在放歌的那个播放器。
+    ///
+    /// 与切歌按钮共用同一个开关（「歌词栏响应鼠标」）：关掉它时窗口是点击穿透的，这一条本来就收不到消息，
+    /// 这里的判断只是让"关掉开关"在代码里也自洽。
+    /// A click on the bar outside the buttons opens whichever player is playing.
+    ///
+    /// It shares the setting with the skip buttons ("lyrics bar responds to the mouse"): with it off the window is
+    /// click-through so this code never sees a message, and the check here just keeps "switch off" coherent in the code.
+    /// </summary>
+    private void RequestOpenPlayer()
+    {
+        if (_closing || !_appliedVisible || !SettingsManager.Current.LyricsMouseControlEnabled)
+            return;
+
+        var snapshot = _coordinator.Latest;
+        if (string.IsNullOrWhiteSpace(snapshot.SourceId))
+        {
+            Log.Info("Transport", "单击歌词栏：没有正在播放的会话，不打开任何东西。");
+            return;
+        }
+
+        Log.Info("Transport", $"单击歌词栏，尝试打开播放器（{snapshot.SourceName}，{snapshot.SourceId}）。");
+        if (!PlayerActivationService.TryActivate(snapshot.SourceId))
+        {
+            // 失败已经记过日志，这里再补一句"用户看到的现象"，方便用户把日志发过来时对上号。
+            // The failure is already logged; one more line names what the user saw, so a log sent back can be matched up.
+            Log.Info("Transport", "单击歌词栏：没能把播放器叫到前台（托盘菜单和按钮不受影响）。");
+        }
     }
 
     /// <summary>
@@ -1105,6 +1185,17 @@ public partial class TaskbarLyricsWindow : Window
     /// <see cref="AppSettings.LyricsFontSize"/>.
     /// </summary>
     private double MeasureTextWidthDip(string text, AppSettings settings, double fontSize)
+        => MeasureTextWidthDip(text, settings, fontSize, ResolveFontFamily(settings));
+
+    /// <summary>
+    /// 按指定字号与字体族量文字宽度。曲目信息块可以有自己的字体与字号比例（见
+    /// <see cref="AppSettings.LyricsTrackInfoFontFamily"/> 与 <see cref="AppSettings.LyricsTrackInfoFontScalePercent"/>），
+    /// 量宽必须用块真正会用的那一套，否则预留的宽度与排版出来的宽度会差一截。
+    /// Measures text width at an explicit font size and family. The track-info block can carry its own family and size scale
+    /// (see <see cref="AppSettings.LyricsTrackInfoFontFamily"/> and <see cref="AppSettings.LyricsTrackInfoFontScalePercent"/>), and
+    /// the measurement has to use the very pair the block renders with, or the reserved width drifts from the laid-out one.
+    /// </summary>
+    private double MeasureTextWidthDip(string text, AppSettings settings, double fontSize, string fontFamily)
     {
         if (string.IsNullOrEmpty(text))
             return 0;
@@ -1115,7 +1206,7 @@ public partial class TaskbarLyricsWindow : Window
         // Both rows are remeasured every frame while consecutive frames almost always measure the same strings: 20fps times
         // two FormattedText allocations is pure waste. A bounded cache absorbs the repeats and clears wholesale at its
         // capacity ceiling, so it never grows unbounded — one song settles on a handful of lines, keeping the hit rate near 100%.
-        var key = new MeasureKey(text, ResolveFontFamily(settings), fontSize);
+        var key = new MeasureKey(text, fontFamily, fontSize);
         if (_measureCache.TryGetValue(key, out var cached))
             return cached;
 
@@ -1256,10 +1347,20 @@ public partial class TaskbarLyricsWindow : Window
     /// </summary>
     private void UpdateTransportTag()
     {
-        var shown = _pointerInsideWindow &&
-                    _transport is not null &&
-                    SettingsManager.Current.LyricsMouseControlEnabled &&
-                    _appliedVisible;
+        // 先定"指针在哪一块上"，按钮与提示都按它分流：按钮只属于歌词那一块，
+        // 指针压在封面/曲目信息上时不出现（用户明确要求过这一条：那一块上的按钮像是对着歌词的，容易误点）。
+        // The region under the pointer is decided first, and both the buttons and the hint branch on it: the buttons belong to
+        // the lyric part only, and staying hidden while the pointer rests on the artwork/track-info part is exactly what was
+        // asked for (there the buttons look like they belong to the lyrics and invite mis-clicks).
+        var region = ResolveOverlayRegion();
+        _overlayRegion = region;
+
+        var canTransport = _transport is not null &&
+                           SettingsManager.Current.LyricsMouseControlEnabled &&
+                           _appliedVisible;
+        var overLyrics = _pointerInsideWindow && region == LyricsOverlayRegion.Lyrics;
+
+        var shown = overLyrics && canTransport;
 
         // Tag 是显隐触发器的唯一条件，用字符串而不是布尔：DataTrigger 的比较走 ToString，
         // 布尔会在"Cached"这类值上出歧义，字符串更直白。
@@ -1269,15 +1370,12 @@ public partial class TaskbarLyricsWindow : Window
         if (!string.Equals((string?)TransportPanel.Tag, targetTag, StringComparison.Ordinal))
             TransportPanel.Tag = targetTag;
 
-        // 指针停在封面与曲目信息那一块上时给一句"滚轮上下曲"的提示：那一块本身没有可点的东西，
-        // 而滚轮恰好是这一块上的操作，提示把两者对上。按钮区的开关与它无关，两者按各自的区域出现。
+        // 指针停在封面与曲目信息那一块上时给一句"滚轮上下曲"的提示：那一块没有按钮，
+        // 而滚轮恰好是这一块上的操作，提示把两者对上。它只看自己那一块，与按钮区的开关无关。
         // A "scroll wheel skips tracks" hint appears while the pointer rests on the artwork-and-track-info part: that part holds
-        // nothing clickable, and the wheel is exactly what acts on it, so the hint pairs the two. It is independent of the button
-        // cluster's switch — each appears according to its own region.
-        var region = ResolveOverlayRegion();
-        _overlayRegion = region;
-
-        var hintTag = shown && region == LyricsOverlayRegion.Info ? "Shown" : "Hidden";
+        // no buttons now, and the wheel is exactly what acts on it, so the hint pairs the two. It answers to its own region
+        // alone, independently of the button cluster.
+        var hintTag = _pointerInsideWindow && region == LyricsOverlayRegion.Info && canTransport ? "Shown" : "Hidden";
         if (!string.Equals((string?)InfoHintPanel.Tag, hintTag, StringComparison.Ordinal))
             InfoHintPanel.Tag = hintTag;
 
@@ -1660,12 +1758,31 @@ public partial class TaskbarLyricsWindow : Window
         if (manualWidthDip > 0)
             return manualWidthDip;
 
-        var artistFontSize = Math.Max(9, settings.LyricsFontSize * 0.92);
-        var titleWidth = MeasureTextWidthDip(title, settings, settings.LyricsFontSize);
-        var artistWidth = MeasureTextWidthDip(artist, settings, artistFontSize);
+        var scale = ResolveTrackInfoFontScale(settings);
+        var artistFontSize = Math.Max(9, settings.LyricsFontSize * 0.92) * scale;
+        var titleWidth = MeasureTextWidthDip(title, settings, settings.LyricsFontSize * scale, ResolveTrackInfoFontFamily(settings));
+        var artistWidth = MeasureTextWidthDip(artist, settings, artistFontSize, ResolveTrackInfoFontFamily(settings));
 
         return Math.Min(Math.Max(titleWidth, artistWidth), LyricsTrackInfoWidthPolicy.AutoMaximumDip);
     }
+
+    /// <summary>
+    /// 曲目信息块的字号缩放（1 = 与歌词同级）。夹在 50%..200%，未设置或非有限值一律当 100%。
+    /// The track-info block's size scale (1 = same size as the lyrics), clamped to 50%..200%; unset or non-finite is 100%.
+    /// </summary>
+    private static double ResolveTrackInfoFontScale(AppSettings settings) =>
+        double.IsFinite(settings.LyricsTrackInfoFontScalePercent) && settings.LyricsTrackInfoFontScalePercent > 0
+            ? Math.Clamp(settings.LyricsTrackInfoFontScalePercent, 50, 200) / 100d
+            : 1;
+
+    /// <summary>
+    /// 曲目信息块真正会用的字体族：块自己配了就用它，否则跟随歌词。
+    /// The font family the track-info block actually renders with: its own when configured, the lyric family otherwise.
+    /// </summary>
+    private static string ResolveTrackInfoFontFamily(AppSettings settings) =>
+        string.IsNullOrWhiteSpace(settings.LyricsTrackInfoFontFamily)
+            ? ResolveFontFamily(settings)
+            : settings.LyricsTrackInfoFontFamily!.Trim();
 
     /// <summary>
     /// 没有封面时占位色块的底色：按曲名算一个固定的色相，让同一首歌每次回来都是同一个颜色。
@@ -1717,7 +1834,17 @@ public partial class TaskbarLyricsWindow : Window
             settings.LyricsTextShadowEnabled ? "0 0 3px rgba(0, 0, 0, 0.85)" : "none",
             settings.LyricsCoverArtEnabled,
             ResolveCoverSizeDip(),
-            settings.LyricsFontItalic);
+            settings.LyricsFontItalic,
+            // 曲目信息块自己的字体与颜色。空串/0 表示"跟随歌词"，渲染器据此退回歌词那一套。
+            // The track-info block's own font and colour; empty strings and zeros mean "follow the lyrics", on which the
+            // renderer falls back to the lyric set.
+            TrackInfoFontFamily: string.IsNullOrWhiteSpace(settings.LyricsTrackInfoFontFamily)
+                ? string.Empty
+                : settings.LyricsTrackInfoFontFamily!.Trim(),
+            TrackInfoFontWeight: settings.LyricsTrackInfoFontBold ? 700 : 400,
+            TrackInfoFontItalic: settings.LyricsTrackInfoFontItalic,
+            TrackInfoFontScalePercent: ResolveTrackInfoFontScale(settings) * 100d,
+            TrackInfoColor: (settings.LyricsTrackInfoTextColor ?? string.Empty).Trim());
     }
 
     private static string ResolveFontFamily(AppSettings settings) =>

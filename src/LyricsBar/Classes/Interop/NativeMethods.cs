@@ -43,6 +43,12 @@ internal static partial class NativeMethods
     /// <summary>鼠标离开消息，由系统在指针移出窗口后自动投递（窗口须已请求鼠标跟踪）。/ Mouse-leave message, posted by the system once the pointer leaves the window (the window must have requested mouse tracking).</summary>
     internal const int WM_MOUSELEAVE = 0x02A3;
 
+    /// <summary>左键按下消息。用于"单击歌词栏打开播放器"：在抬起时判断这一下是否落在按钮之外。/ Left-button-down message, used by "click the bar to open the player" to see whether the press started outside a button.</summary>
+    internal const int WM_LBUTTONDOWN = 0x0201;
+
+    /// <summary>左键抬起消息。与按下配对成一次单击（按下在按钮内、或抬起时指针已移开都不算）。/ Left-button-up message, pairing with the press into a click (a press that started on a button, or a release after the pointer moved away, does not count).</summary>
+    internal const int WM_LBUTTONUP = 0x0202;
+
     /// <summary>滚轮每格的标准增量；wParam 的高 16 位是有符号的倍数。/ One standard wheel notch; the high word of wParam is a signed multiple of it.</summary>
     internal const int WHEEL_DELTA = 120;
 

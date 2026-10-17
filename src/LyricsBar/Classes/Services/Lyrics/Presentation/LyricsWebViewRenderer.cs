@@ -151,7 +151,18 @@ public sealed class LyricsWebViewRenderer(WebView2CompositionControl webView, st
             style.WordScanOverlayColor,
             surfaceColor = "transparent",
             surfaceShadow = "none",
-            style.TextShadow
+            style.TextShadow,
+
+            // 曲目信息块自己的字体与颜色。五个字段都是可选的：空串 / 0 表示"跟随歌词"，
+            // 页面据此把对应的 CSS 变量摘掉，var() 的兜底值于是回到歌词那一套——旧宿主不发这些字段时画面不变。
+            // The track-info block's own font and colour. All five are optional: an empty string or a zero means "follow the
+            // lyrics", on which the page removes the matching CSS variable so the var() fallback returns to the lyric values.
+            // A host that does not send them renders exactly as before.
+            trackInfoFontFamily = style.TrackInfoFontFamily ?? string.Empty,
+            trackInfoFontWeight = style.TrackInfoFontWeight,
+            trackInfoFontItalic = style.TrackInfoFontItalic,
+            trackInfoFontScalePercent = style.TrackInfoFontScalePercent,
+            trackInfoColor = style.TrackInfoColor ?? string.Empty
         });
         StartDrain();
     }
