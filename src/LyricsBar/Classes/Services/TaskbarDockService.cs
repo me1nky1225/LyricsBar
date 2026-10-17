@@ -23,16 +23,14 @@ public sealed record TaskbarTarget(
     int Height,
     double DpiScale)
 {
-    /// <summary>
-    /// 是否竖向任务栏（停靠在屏幕左右侧）。v1.6.1 起支持：歌词栏跟着旋转 90°，文字从下往上读。
-    /// Whether the taskbar is vertical (docked on the left or right edge of the screen). Supported since v1.6.1: the lyrics bar
-    /// rotates 90° and reads bottom-to-top.
-    /// </summary>
+    /// <summary>是否竖向任务栏（停靠在屏幕左右侧）。精简版只支持横向任务栏，因此竖向会被设置界面标记出来。
+    /// Whether the taskbar is vertical (docked left or right). The trimmed build supports horizontal taskbars only, so the
+    /// settings UI marks vertical ones.</summary>
     public bool IsVertical => Height > Width;
 
     /// <summary>给用户看的名称。/ Display name shown to the user.</summary>
     public string DisplayName =>
-        $"{(IsPrimary ? "主显示器" : "副显示器")} · {MonitorDeviceId} · {Width}×{Height}" + (IsVertical ? "（竖向）" : string.Empty);
+        $"{(IsPrimary ? "主显示器" : "副显示器")} · {MonitorDeviceId} · {Width}×{Height}" + (IsVertical ? "（竖向，暂不支持）" : string.Empty);
 }
 
 /// <summary>

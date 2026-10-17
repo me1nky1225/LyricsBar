@@ -30,19 +30,6 @@
       one-way (C# pushes to it), whereas a native button click is an ordinary routed event with one less cross-boundary message.
     -->
     <Grid x:Name="RootGrid" Background="Transparent">
-        <!--
-          任务栏在屏幕左侧或右侧时，这一整块内容会绕中心逆时针转 90°（Angle = -90）：横排时量出来的"宽"变成竖排的"高"，
-          字从下往上读，进度条落到竖条的右边缘。用 LayoutTransform 而不是 RenderTransform：前者会把子元素的
-          DesiredSize 一起转过来，于是内部排版仍然按"长边 × 厚度"算，渲染器、进度条、按钮全都不用改。
-          When the taskbar sits on the left or right edge, the whole block is rotated 90° counter-clockwise (Angle = -90): the
-          width measured for the horizontal case becomes the height of the vertical strip, the text reads bottom-to-top, and the
-          progress strip lands on the strip's right edge. LayoutTransform is used rather than RenderTransform because the former
-          rotates the children's DesiredSize as well, so the inner layout still works in "long side × thickness" and the
-          renderer, progress strip and buttons all stay untouched.
-        -->
-        <Grid.LayoutTransform>
-            <RotateTransform x:Name="ContentRotation" Angle="0" />
-        </Grid.LayoutTransform>
         <!-- 只剩一列：按钮区改为覆盖在歌词之上（见下方 TransportPanel），不再单独占一列宽度。 -->
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*" />

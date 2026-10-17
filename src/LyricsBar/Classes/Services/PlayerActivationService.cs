@@ -23,6 +23,16 @@ public static class PlayerActivationService
 {
     private const int SW_RESTORE = 9;
 
+    /// <summary><c>ShowWindow</c> 的"显示"命令：给藏起来（<c>SW_HIDE</c>）的窗口用，它不会顺手改窗口的大小和位置。</summary>
+    private const int SW_SHOW = 5;
+
+    /// <summary>
+    /// 等窗口还原完成的最长毫秒数。够 120 Hz 的还原动画走完，又短到用户察觉不到。
+    /// The longest wait, in milliseconds, for a restore to finish: long enough for a 120 Hz restore animation, short enough to
+    /// go unnoticed.
+    /// </summary>
+    private const int RestoreBudgetMs = 120;
+
     /// <summary>
     /// 日志分类。与切歌按钮共用 "Transport"：两者都是"把用户的操作交给播放器"。
     /// The log category, shared with the transport buttons: both hand a user gesture over to the player.
@@ -82,12 +92,23 @@ public static class PlayerActivationService
             return false;
         }
 
+        // 计时只为了回答"为什么有时候点了要等一下"：枚举进程、挑窗口、还原这三段各自多久，日志里能看出来。
+        // The timings exist to answer "why does a click sometimes take a while": process lookup, window pick and restore are
+        // measured separately and reported in the log line.
+        var collectWatch = Stopwatch.StartNew();
         var matches = CollectMatchingProcesses(candidates);
+        collectWatch.Stop();
+
+        var pickWatch = Stopwatch.StartNew();
         var window = matches.Count > 0 ? FindBestWindow(matches) : IntPtr.Zero;
+        pickWatch.Stop();
+
+        var timings = $"进程 {collectWatch.ElapsedMilliseconds} ms + 挑窗口 {pickWatch.ElapsedMilliseconds} ms"
+            + (window != IntPtr.Zero ? $"（{DescribeWindow(window)}）" : string.Empty);
 
         if (window == IntPtr.Zero && matches.Count > 0 && TryRelaunch(matches))
         {
-            Log.Info(LogCategory, $"单击歌词栏：播放器进程在，但已经没有窗口（关到托盘时销毁了面板），已重新启动一次把它叫回来（{string.Join('/', candidates)}）。");
+            Log.Info(LogCategory, $"单击歌词栏：播放器进程在，但已经没有窗口（关到托盘时销毁了面板），已重新启动一次把它叫回来（{string.Join('/', candidates)}；{timings}）。");
             return true;
         }
 
@@ -99,20 +120,40 @@ public static class PlayerActivationService
             // brings a minimised window forward while it stays minimised, which looks like nothing happened, and it does not
             // make an SW_HIDE-hidden window appear at all.
             var hidden = !IsWindowVisible(window);
-            _ = ShowWindowAsync(window, SW_RESTORE);
+            var iconic = IsIconic(window);
 
-            if (SetForegroundWindow(window))
+            var restoreWatch = Stopwatch.StartNew();
+            if (iconic)
+            {
+                _ = ShowWindowAsync(window, SW_RESTORE);
+
+                // 还原是异步的：不等它完成就去抢前台，窗口还在"最小化中"的状态，SetForegroundWindow 多半被前台锁挡掉，
+                // 于是白走一趟 SwitchToThisWindow——用户看到的就是"点了要等一会儿才出来"。这里等它完成，最多 120 ms。
+                // The restore is asynchronous: taking the foreground while the window is still mid-restore usually gets refused
+                // by the foreground lock, so the SwitchToThisWindow fallback is spent for nothing — which is what "the click
+                // takes a while" looks like. Wait for it, bounded at 120 ms.
+                WaitUntilRestored(window, RestoreBudgetMs);
+            }
+            else if (hidden)
+            {
+                _ = ShowWindowAsync(window, SW_SHOW);
+            }
+
+            restoreWatch.Stop();
+            timings += $" + 还原 {restoreWatch.ElapsedMilliseconds} ms";
+
+            if (TryTakeForeground(window))
             {
                 Log.Info(LogCategory, hidden
-                    ? $"单击歌词栏：播放器原先藏在托盘里，已把窗口重新显示并叫到前台（进程 {string.Join('/', candidates)}）。"
-                    : $"单击歌词栏：已把播放器窗口叫到前台（进程 {string.Join('/', candidates)}）。");
+                    ? $"单击歌词栏：播放器原先藏在托盘里，已把窗口重新显示并叫到前台（进程 {string.Join('/', candidates)}；{timings}）。"
+                    : $"单击歌词栏：已把播放器窗口叫到前台（进程 {string.Join('/', candidates)}；{timings}）。");
                 return true;
             }
 
-            // 前台锁（SetForegroundWindow 的权限规则）偶尔仍然会挡住：换一条老 API 再试一次，它没有那套限制。
+            // 前台锁偶尔仍然会挡住：换一条老 API 再试一次，它没有那套限制。
             // The foreground lock can still refuse; one more attempt through the older API, which is not subject to it.
             SwitchToThisWindow(window, true);
-            Log.Info(LogCategory, $"单击歌词栏：已通过 SwitchToThisWindow 切换到播放器（进程 {string.Join('/', candidates)}）。");
+            Log.Info(LogCategory, $"单击歌词栏：已通过 SwitchToThisWindow 切换到播放器（进程 {string.Join('/', candidates)}；{timings}）。");
             return true;
         }
 
@@ -196,47 +237,56 @@ public static class PlayerActivationService
     }
 
     /// <summary>
-    /// 一个候选项：进程 id 与（能读到的话）可执行文件全路径。
-    /// One candidate: the process id and, when readable, the executable's full path.
+    /// 一个候选项：进程 id。可执行文件路径要等到真要"重启播放器"时才去读——读 <c>MainModule</c> 是这套流程里最贵的操作。
+    /// One candidate: the process id. The executable path is read only when a relaunch is actually needed, because reading
+    /// <c>MainModule</c> is the most expensive step in this whole flow.
     /// </summary>
-    private readonly record struct PlayerProcess(uint Id, string? ExecutablePath);
+    private readonly record struct PlayerProcess(uint Id);
 
     /// <summary>
-    /// 在正在运行的进程里挑出与候选名匹配的那些。
-    /// Picks the running processes whose names match the candidates.
+    /// 按候选名找进程。用 <c>GetProcessesByName</c> 而不是 <c>GetProcesses()</c> 再逐个比对：后者要为系统里每个进程建一个
+    /// <see cref="Process"/>，还得逐个碰 <c>MainModule</c>（跨进程的模块查询），几百个进程就是几百次——那正是"点了要等一下"
+    /// 的来源。这里只查名字，名字不对的进程根本不会被创建。
+    /// Looks the process up with <c>GetProcessesByName</c> instead of <c>GetProcesses()</c> plus a walk: the latter builds a
+    /// <see cref="Process"/> for every process on the machine and touches <c>MainModule</c> on each one (a cross-process module
+    /// query) — hundreds of them, which is exactly where the delay came from. Here only the name is queried, and processes
+    /// whose name does not match are never opened at all.
     /// </summary>
     private static List<PlayerProcess> CollectMatchingProcesses(IReadOnlyList<string> candidates)
     {
         var result = new List<PlayerProcess>();
+        var seen = new HashSet<uint>();
 
-        Process[] processes;
-        try
+        foreach (var candidate in candidates)
         {
-            processes = Process.GetProcesses();
-        }
-        catch (Exception ex)
-        {
-            Log.Warn(LogCategory, $"枚举进程失败：{ex.Message}");
-            return result;
-        }
-
-        foreach (var process in processes)
-        {
+            Process[] found;
             try
             {
-                if (!IsCandidate(candidates, process))
-                    continue;
+                found = Process.GetProcessesByName(candidate);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn(LogCategory, $"按进程名查找失败（{candidate}）：{ex.Message}");
+                continue;
+            }
 
-                result.Add(new PlayerProcess((uint)process.Id, TryGetExecutablePath(process)));
-            }
-            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+            foreach (var process in found)
             {
-                // 进程在枚举与查询之间退出、或权限不足读不到路径：跳过这一个，不影响其它候选。
-                // The process exited between enumeration and inspection, or its path is unreadable: skip this one.
-            }
-            finally
-            {
-                process.Dispose();
+                try
+                {
+                    var id = (uint)process.Id;
+                    if (seen.Add(id))
+                        result.Add(new PlayerProcess(id));
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    // 进程在枚举与查询之间退出：跳过这一个，不影响其它候选。
+                    // The process exited between enumeration and inspection: skip this one.
+                }
+                finally
+                {
+                    process.Dispose();
+                }
             }
         }
 
@@ -314,7 +364,7 @@ public static class PlayerActivationService
     {
         foreach (var match in matches)
         {
-            var path = match.ExecutablePath;
+            var path = TryGetExecutablePath(match.Id);
             if (string.IsNullOrEmpty(path) || !path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                 continue;
 
@@ -356,55 +406,104 @@ public static class PlayerActivationService
         };
     }
 
-    /// <summary>读进程的可执行文件全路径；读不到（权限、进程已退出）返回 null。/ The executable's full path, or null.</summary>
-    private static string? TryGetExecutablePath(Process process)
+    /// <summary>
+    /// 按进程 id 读可执行文件全路径；读不到（权限、进程已退出）返回 null。只在要重启播放器时调用。
+    /// The executable's full path by process id, or null; only called when a relaunch is on the table.
+    /// </summary>
+    private static string? TryGetExecutablePath(uint processId)
     {
         try
         {
+            using var process = Process.GetProcessById((int)processId);
             return process.MainModule?.FileName;
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+        catch (Exception ex) when (ex is ArgumentException or System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
         {
             return null;
         }
     }
 
     /// <summary>
-    /// 进程名（或可执行文件路径的文件名）是否在候选里。同名可执行文件很常见（多个 Chrome 实例、多个 PotPlayer），
-    /// 这里只认名字，不看路径：SMTC 给的标识本来就没有可靠路径。
-    /// Whether the process name (or the executable's file name) is among the candidates. Same-named executables are common
-    /// (several Chrome instances, several PotPlayer windows), and only the name is compared: the SMTC identifier carries no
-    /// reliable path anyway.
+    /// 把窗口抢到前台。<c>SetForegroundWindow</c> 有一条"只有前台线程才能改前台窗口"的规则，而歌词栏本身是
+    /// <c>WS_EX_NOACTIVATE</c> 的贴附窗口，点击它并不会让自己成为前台线程——所以常常被拒。
+    ///
+    /// 被拒时把**当前前台线程**的输入队列临时接上来（<c>AttachThreadInput</c>），这样调用方在这段时间里就具备前台线程的资格，
+    /// 抢前台能成功，也就不用退到 <c>SwitchToThisWindow</c> 那条更慢的路（它会走一遍完整的切换到窗口流程）。
+    /// Takes the foreground. <c>SetForegroundWindow</c> only allows the foreground thread to change the foreground window, while
+    /// the lyrics bar is a <c>WS_EX_NOACTIVATE</c> window docked to the taskbar — clicking it does not make its thread the
+    /// foreground one, so the call is usually refused.
+    ///
+    /// When refused, the current foreground thread's input queue is attached for the duration of the call
+    /// (<c>AttachThreadInput</c>), which lends this thread the foreground thread's rights: the call then succeeds and the slower
+    /// <c>SwitchToThisWindow</c> fallback — a full switch-to dance — is not needed.
     /// </summary>
-    private static bool IsCandidate(IReadOnlyList<string> candidates, Process process)
+    private static bool TryTakeForeground(IntPtr window)
     {
-        foreach (var candidate in candidates)
-        {
-            if (string.Equals(process.ProcessName, candidate, StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
+        if (SetForegroundWindow(window))
+            return true;
 
-        string? path = null;
+        var foreground = GetForegroundWindow();
+        if (foreground == IntPtr.Zero)
+            return false;
+
+        var foregroundThread = GetWindowThreadProcessId(foreground, out _);
+        var self = GetCurrentThreadId();
+        if (foregroundThread == 0 || foregroundThread == self)
+            return false;
+
+        var attached = false;
         try
         {
-            path = process.MainModule?.FileName;
+            attached = AttachThreadInput(foregroundThread, self, true);
+            _ = BringWindowToTop(window);
+            return SetForegroundWindow(window);
         }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or NotSupportedException)
+        catch (Exception ex)
         {
+            // 接不上去就算了：外面还有 SwitchToThisWindow 那一手。
+            // Failing to attach is fine: SwitchToThisWindow is still there as the last resort.
+            Log.Warn(LogCategory, $"抢前台失败：{ex.Message}");
             return false;
         }
-
-        if (string.IsNullOrEmpty(path))
-            return false;
-
-        var fileName = Path.GetFileNameWithoutExtension(path);
-        foreach (var candidate in candidates)
+        finally
         {
-            if (string.Equals(fileName, candidate, StringComparison.OrdinalIgnoreCase))
-                return true;
+            if (attached)
+                _ = AttachThreadInput(foregroundThread, self, false);
         }
+    }
 
-        return false;
+    /// <summary>
+    /// 日志里形容一个窗口：类名 + 标题。挑错窗口时（比如挑中"桌面歌词"而不是主界面）只有这份描述能看出来。
+    /// Describes a window for the log: class name plus title. If the wrong window ever gets picked (the desktop lyrics panel
+    /// instead of the main one, say), this description is the only way to see it.
+    /// </summary>
+    private static string DescribeWindow(IntPtr window)
+    {
+        var className = new System.Text.StringBuilder(256);
+        var title = new System.Text.StringBuilder(256);
+
+        _ = GetClassName(window, className, className.Capacity);
+        _ = GetWindowText(window, title, title.Capacity);
+
+        var state = IsIconic(window) ? "最小化" : IsWindowVisible(window) ? "可见" : "隐藏";
+        return $"{className}「{title}」，{state}";
+    }
+
+    /// <summary>
+    /// 等窗口不再是"最小化"状态。纯轮询加睡 10 ms：没有事件可等，而这段最多只走 <see cref="RestoreBudgetMs"/>。
+    /// Waits for the window to stop being minimised: there is no event to wait on, and the whole wait is capped at
+    /// <see cref="RestoreBudgetMs"/>.
+    /// </summary>
+    private static void WaitUntilRestored(IntPtr window, int budgetMs)
+    {
+        var watch = Stopwatch.StartNew();
+        while (watch.ElapsedMilliseconds < budgetMs)
+        {
+            if (!IsIconic(window))
+                return;
+
+            Thread.Sleep(10);
+        }
     }
 
     /// <summary>
@@ -480,6 +579,27 @@ public static class PlayerActivationService
 
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
 
     /// <summary>
     /// 单独声明一个带 <c>out</c> 的版本：共享的 <c>NativeMethods</c> 里那个只读线程 id、不读进程 id，

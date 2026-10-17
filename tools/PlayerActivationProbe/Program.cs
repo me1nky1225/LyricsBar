@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using LyricsBar.Classes.Services;
 
 // 播放器激活探针：只钉住"从 SMTC 来源标识推出进程名候选"这条纯函数。
@@ -64,6 +65,51 @@ Check("packaged '!App' is not a process candidate", !packaged.Contains("App", St
 var unknown = PlayerActivationService.ResolveProcessNameCandidates("SomeUnknownPlayer").ToArray();
 Check("unknown identifier keeps its own name", unknown.Length == 1 && unknown[0] == "SomeUnknownPlayer",
     $"[{string.Join(" | ", unknown)}]");
+
+// 速度：这条流程原来用 GetProcesses() 再给每个进程读一次 MainModule（跨进程的模块查询），几百个进程就是几百次；
+// 换成就按候选名 GetProcessesByName 之后，只碰真正匹配的那几个。这里把两种做法的开销并排量一次。
+// Speed: the flow used to call GetProcesses() and then read MainModule once per process (a cross-process module query) —
+// hundreds of them on a busy machine. It now asks GetProcessesByName for each candidate name and only touches real matches.
+// Both are timed side by side here.
+var allProcesses = Process.GetProcesses();
+var oldWatch = Stopwatch.StartNew();
+var moduleReads = 0;
+foreach (var process in allProcesses)
+{
+    try
+    {
+        _ = process.MainModule?.FileName;
+        moduleReads++;
+    }
+    catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException)
+    {
+    }
+    finally
+    {
+        process.Dispose();
+    }
+}
+
+oldWatch.Stop();
+
+string[] probeNames = ["cloudmusic", "QQMusic", "Spotify"];
+var newWatch = Stopwatch.StartNew();
+var matched = 0;
+foreach (var name in probeNames)
+{
+    foreach (var process in Process.GetProcessesByName(name))
+    {
+        matched++;
+        process.Dispose();
+    }
+}
+
+newWatch.Stop();
+
+Console.WriteLine($"[info] 本机 {allProcesses.Length} 个进程：旧做法 {oldWatch.ElapsedMilliseconds} ms（{moduleReads} 次 MainModule），"
+    + $"新做法 {newWatch.ElapsedMilliseconds} ms（{probeNames.Length} 个名字、{matched} 个命中）");
+
+Check("player lookup stays under 200 ms", newWatch.ElapsedMilliseconds < 200, $"{newWatch.ElapsedMilliseconds} ms");
 
 Console.WriteLine();
 Console.WriteLine(failures.Count == 0
